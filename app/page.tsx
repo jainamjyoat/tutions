@@ -58,7 +58,7 @@ export default function Home() {
       <main className="flex-grow">
         {/* Hero Section */}
         <section className="relative overflow-hidden mx-auto">
-          <div className="grid lg:grid-cols-2 items-stretch min-h-[600px]">
+          <div className="grid lg:grid-cols-2 items-stretch min-h-[620px]">
             <div className="flex flex-col justify-center py-24 px-margin-mobile md:px-margin-desktop">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-fixed text-on-primary-fixed-variant mb-6 text-sm font-semibold w-fit">
                 <span className="material-symbols-outlined text-sm">stars</span>
@@ -458,39 +458,54 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer className="w-full py-lg bg-inverse-surface dark:bg-surface-container-lowest flex flex-col md:flex-row justify-between items-center px-margin-mobile md:px-margin-desktop gap-md mt-auto">
-        <div className="font-headline-sm text-headline-sm text-inverse-on-surface dark:text-on-surface flex items-center gap-2">
-          <span className="material-symbols-outlined">school</span>
-          Happy Toddles
-        </div>
-        <div className="flex flex-wrap justify-center gap-6 md:gap-8">
+      <footer className="w-full bg-[#303030] text-white">
+        <div className="max-w-7xl mx-auto px-margin-mobile md:px-margin-desktop py-8 flex flex-col md:flex-row justify-between items-center gap-6">
+          {/* Brand Logo */}
           <Link
-            className="font-body-sm text-body-sm text-surface-variant dark:text-on-surface-variant hover:text-on-primary-container dark:hover:text-primary transition-colors"
             href="#"
+            className="font-quicksand text-[20px] font-bold text-white flex items-center gap-2.5 tracking-tight"
           >
-            Privacy Policy
+            <svg
+              className="w-6 h-6 text-white fill-current"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z" />
+            </svg>
+            <span>Happy Toddles</span>
           </Link>
-          <Link
-            className="font-body-sm text-body-sm text-surface-variant dark:text-on-surface-variant hover:text-on-primary-container dark:hover:text-primary transition-colors"
-            href="#"
-          >
-            Terms of Service
-          </Link>
-          <Link
-            className="font-body-sm text-body-sm text-surface-variant dark:text-on-surface-variant hover:text-on-primary-container dark:hover:text-primary transition-colors"
-            href="#"
-          >
-            Contact Us
-          </Link>
-          <Link
-            className="font-body-sm text-body-sm text-surface-variant dark:text-on-surface-variant hover:text-on-primary-container dark:hover:text-primary transition-colors"
-            href="#"
-          >
-            Careers
-          </Link>
-        </div>
-        <div className="font-body-sm text-body-sm text-surface-variant dark:text-on-surface-variant">
-          © 2024 Happy Toddles. All rights reserved.
+
+          {/* Nav Links */}
+          <div className="flex flex-wrap justify-center items-center gap-6 lg:gap-8 text-[14px] font-inter text-[#c1c6d6]">
+            <Link
+              className="hover:text-white transition-colors duration-200"
+              href="#"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              className="hover:text-white transition-colors duration-200"
+              href="#"
+            >
+              Terms of Service
+            </Link>
+            <Link
+              className="hover:text-white transition-colors duration-200"
+              href="#"
+            >
+              Contact Us
+            </Link>
+            <Link
+              className="hover:text-white transition-colors duration-200"
+              href="#"
+            >
+              Careers
+            </Link>
+          </div>
+
+          {/* Copyright Notice */}
+          <div className="font-inter text-[14px] text-[#c1c6d6]">
+            © 2024 Happy Toddles. All rights reserved.
+          </div>
         </div>
       </footer>
     </div>
