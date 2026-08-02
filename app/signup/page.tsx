@@ -29,7 +29,7 @@ export default function SignUp() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
 
           {/* Banner Text Block */}
-          <div className="relative z-20 text-white  space-y-2">
+          <div className="relative z-20 text-white space-y-2">
             <h1 className="font-quicksand font-bold text-3xl xl:text-[38px] leading-[1.2] tracking-tight text-white">
               Nurturing Curiosity,<br />Building Excellence
             </h1>
@@ -43,15 +43,28 @@ export default function SignUp() {
         <div className="w-full min-h-screen flex flex-col justify-center items-center px-6 sm:px-12 lg:px-16 py-12 bg-white">
           <div className="w-full max-w-[440px] mx-auto" style={{ width: '100%', maxWidth: '440px' }}>
             
-            {/* Logo */}
-            <Link href="/" className="inline-flex items-center gap-2.5 text-[#005bbf] mb-8">
-              <svg className="w-7 h-7 fill-current" viewBox="0 0 24 24">
-                <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z" />
-              </svg>
-              <span className="font-quicksand font-bold text-2xl tracking-tight text-[#1b1c1c]">
-                Happy Toddles
-              </span>
-            </Link>
+            {/* Logo & Transparent Back Button Header */}
+            <div className="flex items-center justify-between w-full mb-8">
+              <Link href="/" className="inline-flex items-center gap-2.5 text-[#005bbf]">
+                <svg className="w-7 h-7 fill-current" viewBox="0 0 24 24">
+                  <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z" />
+                </svg>
+                <span className="font-quicksand font-bold text-2xl tracking-tight text-[#1b1c1c]">
+                  Happy Toddles
+                </span>
+              </Link>
+
+              {/* Transparent Back to Home Button */}
+              <Link
+                href="/"
+                className="bg-transparent text-[#727785] hover:text-[#005bbf] hover:bg-[#f0eded] font-inter font-semibold text-xs px-3.5 py-2 rounded-full transition-all duration-200 inline-flex items-center gap-1 group"
+              >
+                <span>Back to Home</span>
+                <span className="material-symbols-outlined text-base leading-none group-hover:translate-x-0.5 transition-transform duration-200">
+                  arrow_forward
+                </span>
+              </Link>
+            </div>
 
             {/* Form Header */}
             <h2 className="font-quicksand font-bold text-3xl text-[#1b1c1c] mb-2">
@@ -75,7 +88,7 @@ export default function SignUp() {
                   id="full-name"
                   type="text"
                   required
-                  placeholder="John Doe"
+                  placeholder="Your Name"
                   className="w-full h-12 px-4 bg-[#f0eded] border border-[#c1c6d6]/50 rounded-xl text-sm font-inter text-[#1b1c1c] placeholder-[#727785] focus:outline-none focus:bg-white focus:border-[#005bbf] focus:ring-2 focus:ring-[#005bbf]/20 transition-all"
                 />
               </div>
@@ -92,7 +105,7 @@ export default function SignUp() {
                   id="email"
                   type="email"
                   required
-                  placeholder="john@example.com"
+                  placeholder="your@example.com"
                   className="w-full h-12 px-4 bg-[#f0eded] border border-[#c1c6d6]/50 rounded-xl text-sm font-inter text-[#1b1c1c] placeholder-[#727785] focus:outline-none focus:bg-white focus:border-[#005bbf] focus:ring-2 focus:ring-[#005bbf]/20 transition-all"
                 />
               </div>
