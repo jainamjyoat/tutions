@@ -1,6 +1,44 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 
 export default function Home() {
+  // FAQ Accordion State
+  const [openFaq, setOpenFaq] = useState<number | null>(1); // Default item 1 open
+
+  const toggleFaq = (index: number) => {
+    setOpenFaq(openFaq === index ? null : index);
+  };
+
+  const faqs = [
+    {
+      question: "How do you vet your tutors?",
+      answer:
+        "Every tutor undergoes a rigorous 5-stage screening process, including comprehensive criminal background checks, academic credential verification, practical teaching demonstrations, and child psychology alignment interviews. Only the top 3% of applicants join our platform.",
+    },
+    {
+      question: "Can I change my session times?",
+      answer:
+        "Yes! We understand that family schedules can change. You can easily reschedule, pause, or adjust your session times through our parent portal up to 24 hours in advance without any cancellation fees.",
+    },
+    {
+      question: "Do you offer a trial lesson?",
+      answer:
+        "Absoloutely! We offer a complimentary 30-minute introductory trial session. This allows your child to meet their prospective tutor, experience our interactive learning environment, and ensure it's a perfect match before committing.",
+    },
+    {
+      question: "What age groups and subjects do you specialize in?",
+      answer:
+        "We specialize in early childhood and primary education for children ages 3 to 12 (Pre-K through 6th grade). Our personalized curriculum covers Early Phonics & Reading, Elementary Mathematics, Foundational Science, and Creative Writing.",
+    },
+    {
+      question: "How do parents track academic progress?",
+      answer:
+        "After every session, tutors upload a detailed progress log to your parent dashboard. You'll receive weekly reports detailing skill mastery, milestones achieved, and personalized practice recommendations to keep you informed every step of the way.",
+    },
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-surface">
       {/* TopNavBar */}
@@ -47,9 +85,8 @@ export default function Home() {
             <button className="hidden md:block font-quicksand font-bold text-[15px] text-primary hover:opacity-80 transition-opacity">
               Log In
             </button>
-            {/* Linked Sign Up Button */}
-            <Link 
-              href="/signup" 
+            <Link
+              href="/signup"
               className="font-quicksand font-bold text-[15px] text-white bg-primary px-6 py-2.5 rounded-full hover:bg-primary-container transition-all duration-200 shadow-sm active:scale-95 inline-flex items-center justify-center"
             >
               Sign Up
@@ -71,13 +108,16 @@ export default function Home() {
               <h1 className="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-surface mb-6">
                 Personalized Tutoring for Every Student
               </h1>
-              <p className="font-body-lg text-body-lg text-on-surface-variant mb-10 ">
+              <p className="font-body-lg text-body-lg text-on-surface-variant mb-10">
                 Empower your child's learning journey with expert tutors and interactive tools designed to inspire confidence and curiosity.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <button className="bg-primary text-on-primary font-button-text text-button-text px-[32px] py-[16px] rounded-full shadow-[0_8px_24px_rgba(26,115,232,0.2)] hover:shadow-[0_12px_28px_rgba(26,115,232,0.3)] hover:-translate-y-1 transition-all duration-300">
+                <Link
+                  href="/signup"
+                  className="bg-primary text-on-primary font-button-text text-button-text px-[32px] py-[16px] rounded-full shadow-[0_8px_24px_rgba(26,115,232,0.2)] hover:shadow-[0_12px_28px_rgba(26,115,232,0.3)] hover:-translate-y-1 transition-all duration-300 inline-flex items-center justify-center"
+                >
                   Find Your Tutor
-                </button>
+                </Link>
                 <button className="inline-flex items-center justify-center gap-2 border-2 border-red-600 text-red-600 font-button-text text-button-text px-[32px] py-[16px] rounded-full hover:bg-red-50 hover:shadow-md transition-all duration-300 active:scale-95">
                   <span
                     className="material-symbols-outlined text-xl"
@@ -226,9 +266,12 @@ export default function Home() {
             <h2 className="font-headline-lg text-headline-lg text-on-primary mb-8">
               Ready to transform your child's learning journey?
             </h2>
-            <button className="bg-surface text-primary font-button-text text-button-text px-10 py-4 rounded-full shadow-lg hover:bg-primary-fixed hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+            <Link
+              href="/signup"
+              className="bg-surface text-primary font-button-text text-button-text px-10 py-4 rounded-full shadow-lg hover:bg-primary-fixed hover:shadow-xl hover:-translate-y-1 transition-all duration-300 inline-block"
+            >
               Find Your Tutor
-            </button>
+            </Link>
           </div>
         </section>
 
@@ -339,9 +382,9 @@ export default function Home() {
                     Email support
                   </li>
                 </ul>
-                <button className="w-full border-2 border-primary text-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-fixed/30 transition-colors">
+                <Link href="/signup" className="w-full inline-block border-2 border-primary text-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-fixed/30 transition-colors">
                   Get Started
-                </button>
+                </Link>
               </div>
 
               {/* Pro Tier */}
@@ -374,9 +417,9 @@ export default function Home() {
                     Access to resource library
                   </li>
                 </ul>
-                <button className="w-full bg-primary text-on-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-container shadow-md transition-colors">
+                <Link href="/signup" className="w-full inline-block bg-primary text-on-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-container shadow-md transition-colors">
                   Get Started
-                </button>
+                </Link>
               </div>
 
               {/* Elite Tier */}
@@ -406,56 +449,58 @@ export default function Home() {
                     Weekly parent check-ins
                   </li>
                 </ul>
-                <button className="w-full border-2 border-primary text-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-fixed/30 transition-colors">
+                <Link href="/signup" className="w-full inline-block border-2 border-primary text-primary font-button-text text-button-text py-3 rounded-full hover:bg-primary-fixed/30 transition-colors">
                   Get Started
-                </button>
+                </Link>
               </div>
             </div>
           </div>
         </section>
 
-        {/* FAQ Section */}
-        <section className="py-24 bg-surface-container-low px-margin-mobile md:px-margin-desktop">
+        {/* Frequently Asked Questions Section */}
+        <section className="py-24 bg-surface-container-low px-margin-mobile md:px-margin-desktop" id="faq">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-16">
               <h2 className="font-headline-md text-headline-md text-on-surface mb-4">
                 Frequently Asked Questions
               </h2>
+              <p className="font-body-md text-body-md text-on-surface-variant">
+                Have questions about our tutoring programs? We're here to help.
+              </p>
             </div>
             <div className="space-y-4">
-              <div className="border border-outline-variant/30 rounded-xl bg-surface overflow-hidden">
-                <button className="w-full px-6 py-4 flex justify-between items-center text-left focus:outline-none">
-                  <span className="font-headline-sm text-headline-sm text-on-surface text-lg">
-                    How do you vet your tutors?
-                  </span>
-                  <span className="material-symbols-outlined text-primary">expand_more</span>
-                </button>
-              </div>
-
-              <div className="border border-outline-variant/30 rounded-xl bg-surface overflow-hidden">
-                <button className="w-full px-6 py-4 flex justify-between items-center text-left focus:outline-none">
-                  <span className="font-headline-sm text-headline-sm text-on-surface text-lg">
-                    Can I change my session times?
-                  </span>
-                  <span className="material-symbols-outlined text-primary transform rotate-180">
-                    expand_more
-                  </span>
-                </button>
-                <div className="px-6 pb-4 pt-2 border-t border-outline-variant/20">
-                  <p className="font-body-md text-body-md text-on-surface-variant">
-                    Yes! We understand that schedules can change. You can easily reschedule or adjust your session times through our parent portal up to 24 hours in advance.
-                  </p>
-                </div>
-              </div>
-
-              <div className="border border-outline-variant/30 rounded-xl bg-surface overflow-hidden">
-                <button className="w-full px-6 py-4 flex justify-between items-center text-left focus:outline-none">
-                  <span className="font-headline-sm text-headline-sm text-on-surface text-lg">
-                    Do you offer a trial lesson?
-                  </span>
-                  <span className="material-symbols-outlined text-primary">expand_more</span>
-                </button>
-              </div>
+              {faqs.map((faq, index) => {
+                const isOpen = openFaq === index;
+                return (
+                  <div
+                    key={index}
+                    className="border border-outline-variant/30 rounded-xl bg-surface overflow-hidden transition-all duration-300 shadow-sm"
+                  >
+                    <button
+                      onClick={() => toggleFaq(index)}
+                      className="w-full px-6 py-5 flex justify-between items-center text-left focus:outline-none group"
+                    >
+                      <span className="font-headline-sm text-headline-sm text-on-surface text-lg group-hover:text-primary transition-colors">
+                        {faq.question}
+                      </span>
+                      <span
+                        className={`material-symbols-outlined text-primary transform transition-transform duration-300 ${
+                          isOpen ? "rotate-180" : "rotate-0"
+                        }`}
+                      >
+                        expand_more
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="px-6 pb-5 pt-1 border-t border-outline-variant/20 animate-fadeIn">
+                        <p className="font-body-md text-body-md text-on-surface-variant leading-relaxed">
+                          {faq.answer}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
