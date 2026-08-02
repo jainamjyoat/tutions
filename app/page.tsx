@@ -81,10 +81,13 @@ export default function Home() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-6">
-            <button className="hidden md:block font-quicksand font-bold text-[15px] text-primary hover:opacity-80 transition-opacity">
+          <div className="flex items-center gap-6"> 
+            <Link
+              href="/login"
+              className="idden md:block font-quicksand font-bold text-[15px] text-primary hover:opacity-80 transition-opacity"
+            >
               Log In
-            </button>
+            </Link>
             <Link
               href="/signup"
               className="font-quicksand font-bold text-[15px] text-white bg-primary px-6 py-2.5 rounded-full hover:bg-primary-container transition-all duration-200 shadow-sm active:scale-95 inline-flex items-center justify-center"
