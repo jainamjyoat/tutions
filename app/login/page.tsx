@@ -47,7 +47,7 @@ function LoginFormContent() {
             <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z" />
           </svg>
           <span className="font-quicksand font-bold text-xl tracking-tight text-[#1b1c1c]">
-            Happy Toddles
+            Happy Toddlers
           </span>
         </Link>
 
@@ -217,7 +217,7 @@ export default function Login() {
             <h1 className="font-quicksand font-bold text-2xl xl:text-3xl leading-snug tracking-tight text-white">
               Welcome Back to
               <br />
-              Happy Toddles
+              Happy Toddlers
             </h1>
             <p className="font-inter text-xs xl:text-sm font-medium text-white/90 leading-relaxed">
               Continue your child's personalized learning journey.

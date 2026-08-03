@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useSession } from "next-auth/react";
 
 type Student = {
   id: string;
@@ -46,6 +47,7 @@ type Meeting = {
 };
 
 export default function TeacherDashboard() {
+  const { data: session } = useSession();
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState<
@@ -55,6 +57,11 @@ export default function TeacherDashboard() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Extract session user details for avatar & initial letter fallback
+  const userImage = session?.user?.image;
+  const userName = session?.user?.name || session?.user?.email || "Teacher";
+  const userInitial = userName.charAt(0).toUpperCase();
 
   const [students, setStudents] = useState<Student[]>([
     {
@@ -230,7 +237,7 @@ export default function TeacherDashboard() {
     if (!open) return null;
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-start sm:items-center justify-center p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl p-6 w-ful shadow-2xl my-8 sm:my-0 relative">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8 sm:my-0 relative">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-quicksand font-bold text-xl text-[#1b1c1c]">{title}</h3>
             <button
@@ -252,16 +259,22 @@ export default function TeacherDashboard() {
       <aside className="bg-white h-screen w-64 fixed left-0 top-0 shadow-sm flex flex-col py-6 px-3 z-50 border-r border-[#eae8e7] hidden md:flex">
         <div className="mb-8 px-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#1a73e8]/10 flex items-center justify-center shrink-0">
-              <Image
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA"
-                alt="Profile"
-                width={40}
-                height={40}
-                unoptimized
-                className="w-10 h-10 rounded-full object-cover border-2 border-[#005bbf]"
-              />
+            {/* Dynamic Profile Avatar / Initial Fallback */}
+            <div className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center shrink-0 overflow-hidden font-quicksand font-bold text-base border-2 border-[#005bbf] shadow-xs">
+              {userImage ? (
+                <Image
+                  src={userImage}
+                  alt={userName}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{userInitial}</span>
+              )}
             </div>
+
             <div>
               <h1 className="font-quicksand font-semibold text-lg text-[#005bbf] m-0 leading-tight">
                 Happy Toddles
@@ -323,7 +336,26 @@ export default function TeacherDashboard() {
       >
         <div>
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#eae8e7]">
-            <span className="font-quicksand font-bold text-xl text-[#005bbf]">Happy Toddles</span>
+            <div className="flex items-center gap-2.5">
+              {/* Dynamic Profile Avatar / Initial Fallback for Mobile */}
+              <div className="w-8 h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center shrink-0 overflow-hidden font-quicksand font-bold text-sm border-2 border-[#005bbf]">
+                {userImage ? (
+                  <Image
+                    src={userImage}
+                    alt={userName}
+                    width={32}
+                    height={32}
+                    unoptimized
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{userInitial}</span>
+                )}
+              </div>
+              <span className="font-quicksand font-bold text-lg text-[#005bbf]">
+                Happy Toddles
+              </span>
+            </div>
             <button onClick={() => setMobileMenuOpen(false)} className="text-[#414754]">
               <span className="material-symbols-outlined text-2xl">close</span>
             </button>
@@ -391,7 +423,7 @@ export default function TeacherDashboard() {
               <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                   <h2 className="font-quicksand font-bold text-2xl md:text-3xl text-[#1b1c1c] mb-1">
-                    Welcome back, Sarah! 👋
+                    Welcome back, {session?.user?.name || "Teacher"}! 👋
                   </h2>
                   <p className="font-inter text-sm md:text-base text-[#414754]">
                     You have {students.length} students and {meetings.length} meetings scheduled.
