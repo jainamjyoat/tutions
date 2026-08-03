@@ -18,7 +18,7 @@ export default function SignUp() {
         {/* Left Column: Image Banner & Fixed Bottom Text */}
         <div className="hidden lg:relative lg:flex flex-col justify-end p-10 lg:p-14 xl:p-16 min-h-screen w-full overflow-hidden bg-slate-900">
           <Image
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDMjYmNLpSjBoQOxTVoQdSy13wnJau_B5yFRLqk1BxV1880H6E5n91lWUxUelEXhH8LBmaE3q3LYN6LPhlDNkJOVjt3FUpoKsqMJOO3sa6JCsENQRql6APyL_OU2jjFJ0az13sBaqmJCmB9szxqz9uBMRsNBw8bsyvk0i5gFLmlB5Pt1M4v7UjuF6-IxaNJi6-83esvbR2ildmZIdCXabp7n18Uv3zLeBHXbUQeGtpEZ7uosANwSK58mg"
+            src="/signup.webp"
             alt="Happy Toddles Tutoring"
             fill
             priority
