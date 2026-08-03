@@ -4,6 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 
 export default function Home() {
+  // Mobile Nav Drawer State
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   // FAQ Accordion State
   const [openFaq, setOpenFaq] = useState<number | null>(1); // Default item 1 open
 
@@ -25,7 +28,7 @@ export default function Home() {
     {
       question: "Do you offer a trial lesson?",
       answer:
-        "Absoloutely! We offer a complimentary 30-minute introductory trial session. This allows your child to meet their prospective tutor, experience our interactive learning environment, and ensure it's a perfect match before committing.",
+        "Absolutely! We offer a complimentary 30-minute introductory trial session. This allows your child to meet their prospective tutor, experience our interactive learning environment, and ensure it's a perfect match before committing.",
     },
     {
       question: "What age groups and subjects do you specialize in?",
@@ -40,7 +43,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface">
+    <div className="min-h-screen flex flex-col bg-surface relative overflow-x-hidden">
       {/* TopNavBar */}
       <nav className="w-full top-0 sticky z-50 bg-white/95 backdrop-blur-md border-b border-outline-variant/20 shadow-sm">
         <div className="flex justify-between items-center px-margin-mobile md:px-margin-desktop py-4 max-w-7xl mx-auto">
@@ -58,7 +61,7 @@ export default function Home() {
             <span>Happy Toddles</span>
           </Link>
 
-          {/* Navigation Links */}
+          {/* Desktop Navigation Links */}
           <div className="hidden md:flex items-center gap-8 lg:gap-10">
             <Link
               href="#"
@@ -80,11 +83,11 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-6"> 
+          {/* Desktop Action Buttons */}
+          <div className="hidden md:flex items-center gap-6">
             <Link
               href="/login"
-              className="idden md:block font-quicksand font-bold text-[15px] text-primary hover:opacity-80 transition-opacity"
+              className="font-quicksand font-bold text-[15px] text-primary hover:opacity-80 transition-opacity"
             >
               Log In
             </Link>
@@ -95,15 +98,117 @@ export default function Home() {
               Sign Up
             </Link>
           </div>
+
+          {/* Mobile Hamburger Toggle Button */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden text-on-surface hover:text-primary p-2 focus:outline-none transition-colors"
+            aria-label="Open navigation menu"
+          >
+            <span className="material-symbols-outlined text-2xl leading-none block">
+              menu
+            </span>
+          </button>
         </div>
       </nav>
+
+      {/* --- SIDEWAYS MOBILE DRAWER ANIMATION --- */}
+      {/* 1. Backdrop Overlay Fade */}
+      <div
+        onClick={() => setMobileMenuOpen(false)}
+        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 md:hidden transition-opacity duration-300 ease-in-out ${
+          mobileMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      />
+
+      {/* 2. Sideways Sliding Drawer Panel with Smooth Spring Curve */}
+      <aside
+        className={`fixed top-0 right-0 bottom-0 w-[280px] sm:w-[320px] bg-white z-[51] md:hidden shadow-2xl flex flex-col justify-between p-6 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] transform ${
+          mobileMenuOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div>
+          {/* Drawer Header with Close Button */}
+          <div className="flex justify-between items-center mb-8 pb-4 border-b border-outline-variant/20">
+            <Link
+              href="#"
+              onClick={() => setMobileMenuOpen(false)}
+              className="font-quicksand text-xl font-bold text-primary flex items-center gap-2"
+            >
+              <svg className="w-6 h-6 text-primary fill-current" viewBox="0 0 24 24">
+                <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z" />
+              </svg>
+              <span>Happy Toddles</span>
+            </Link>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="p-1 rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors"
+              aria-label="Close menu"
+            >
+              <span className="material-symbols-outlined text-2xl leading-none block">
+                close
+              </span>
+            </button>
+          </div>
+
+          {/* Navigation Links with Smooth Sideways Shift on Hover */}
+          <div className="flex flex-col space-y-2 font-inter font-semibold text-[15px] text-on-surface-variant">
+            <Link
+              href="#"
+              onClick={() => setMobileMenuOpen(false)}
+              className="hover:text-primary hover:translate-x-2 transition-all duration-200 ease-out py-2.5 border-b border-outline-variant/10 block"
+            >
+              Find a Tutor
+            </Link>
+            <Link
+              href="#pricing"
+              onClick={() => setMobileMenuOpen(false)}
+              className="hover:text-primary hover:translate-x-2 transition-all duration-200 ease-out py-2.5 border-b border-outline-variant/10 block"
+            >
+              Pricing
+            </Link>
+            <Link
+              href="#resources"
+              onClick={() => setMobileMenuOpen(false)}
+              className="hover:text-primary hover:translate-x-2 transition-all duration-200 ease-out py-2.5 border-b border-outline-variant/10 block"
+            >
+              Resources
+            </Link>
+            <Link
+              href="#faq"
+              onClick={() => setMobileMenuOpen(false)}
+              className="hover:text-primary hover:translate-x-2 transition-all duration-200 ease-out py-2.5 border-b border-outline-variant/10 block"
+            >
+              FAQs
+            </Link>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="pt-6 border-t border-outline-variant/20 flex flex-col gap-3">
+          <Link
+            href="/login"
+            onClick={() => setMobileMenuOpen(false)}
+            className="w-full text-center font-quicksand font-bold text-[15px] text-primary border-2 border-primary/30 py-2.5 rounded-full hover:bg-primary/5 transition-colors"
+          >
+            Log In
+          </Link>
+          <Link
+            href="/signup"
+            onClick={() => setMobileMenuOpen(false)}
+            className="w-full text-center font-quicksand font-bold text-[15px] text-white bg-primary py-2.5 rounded-full hover:bg-primary-container transition-all shadow-md active:scale-95"
+          >
+            Sign Up
+          </Link>
+        </div>
+      </aside>
 
       {/* Main Content */}
       <main className="flex-grow">
         {/* Hero Section */}
         <section className="relative overflow-hidden mx-auto">
           <div className="grid lg:grid-cols-2 items-stretch min-h-[620px]">
-            <div className="flex flex-col justify-center py-24 px-margin-mobile md:px-margin-desktop">
+            <div className="flex flex-col justify-center py-16 md:py-24 px-margin-mobile md:px-margin-desktop">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-fixed text-on-primary-fixed-variant mb-6 text-sm font-semibold w-fit">
                 <span className="material-symbols-outlined text-sm">stars</span>
                 <span>Award-winning tutoring platform</span>
@@ -117,7 +222,7 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link
                   href="/signup"
-                  className="bg-primary text-on-primary font-button-text text-button-text px-[32px] py-[16px] rounded-full shadow-[0_8px_24px_rgba(26,115,232,0.2)] hover:shadow-[0_12px_28px_rgba(26,115,232,0.3)] hover:-translate-y-1 transition-all duration-300 inline-flex items-center justify-center"
+                  className="bg-primary text-on-primary font-button-text text-button-text px-[32px] py-[16px] rounded-full shadow-[0_8px_24px_rgba(26,115,232,0.2)] hover:shadow-[0_12px_28px_rgba(26,115,232,0.3)] hover:-translate-y-1 transition-all duration-300 inline-flex items-center justify-center text-center"
                 >
                   Find Your Tutor
                 </Link>
@@ -157,7 +262,7 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="relative h-full w-full flex items-center justify-center">
+            <div className="relative h-full w-full flex items-center justify-center min-h-[300px]">
               <div className="relative w-full h-full overflow-hidden border-outline-variant/20">
                 <img
                   alt="Happy Toddles Tutoring"
