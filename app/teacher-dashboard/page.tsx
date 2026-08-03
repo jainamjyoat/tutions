@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 
 type Student = {
   id: string;
@@ -46,13 +46,56 @@ type Meeting = {
   meetLink: string;
 };
 
+type NotificationItem = {
+  id: string;
+  title: string;
+  desc: string;
+  time: string;
+  read: boolean;
+};
+
 export default function TeacherDashboard() {
   const { data: session } = useSession();
   const [mounted, setMounted] = useState(false);
+  const [imageError, setImageError] = useState(false); // Image loading fallback state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState<
     "overview" | "students" | "groups" | "sections" | "schedule"
   >("overview");
+
+  // Notifications State
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([
+    {
+      id: "1",
+      title: "New Student Invite",
+      desc: "Emma Wilson accepted your class invitation.",
+      time: "10 mins ago",
+      read: false,
+    },
+    {
+      id: "2",
+      title: "Milestone Reached",
+      desc: "Leo Bennett completed 'Alphabet Soup'.",
+      time: "2 hours ago",
+      read: false,
+    },
+    {
+      id: "3",
+      title: "Upcoming Session",
+      desc: "Meeting scheduled with Mia Chang.",
+      time: "3 hours ago",
+      read: true,
+    },
+  ]);
+
+  // Settings State
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [sessionReminders, setSessionReminders] = useState(true);
+  const [defaultMeetLink, setDefaultMeetLink] = useState(
+    "https://meet.google.com/abc-defg-hij"
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -62,6 +105,18 @@ export default function TeacherDashboard() {
   const userImage = session?.user?.image;
   const userName = session?.user?.name || session?.user?.email || "Teacher";
   const userInitial = userName.charAt(0).toUpperCase();
+
+  const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
 
   const [students, setStudents] = useState<Student[]>([
     {
@@ -126,7 +181,6 @@ export default function TeacherDashboard() {
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [preselectedStudentId, setPreselectedStudentId] = useState("");
 
   const [scheduleForm, setScheduleForm] = useState({
     studentId: "",
@@ -140,8 +194,7 @@ export default function TeacherDashboard() {
   const [newSection, setNewSection] = useState({ name: "" });
 
   const openScheduleForStudent = (studentId: string) => {
-    setPreselectedStudentId(studentId);
-    setScheduleForm((prev) => ({ ...prev, studentId }));
+    setScheduleForm((prev) => ({ ...prev, studentId, meetLink: defaultMeetLink }));
     setShowScheduleModal(true);
   };
 
@@ -164,7 +217,7 @@ export default function TeacherDashboard() {
     };
     setMeetings((prev) => [...prev, meeting]);
     setShowScheduleModal(false);
-    setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: "" });
+    setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
   };
 
   const handleAcceptInvite = (invite: Invite) => {
@@ -236,15 +289,16 @@ export default function TeacherDashboard() {
   ) => {
     if (!open) return null;
     return (
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-start sm:items-center justify-center p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8 sm:my-0 relative">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="font-quicksand font-bold text-xl text-[#1b1c1c]">{title}</h3>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-[720px]  shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-2 border-b border-[#eae8e7]/50">
+            <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c]">{title}</h3>
             <button
               onClick={onClose}
               className="text-[#727785] hover:text-[#1b1c1c] p-1.5 rounded-full hover:bg-[#f5f3f3] transition-colors"
+              aria-label="Close modal"
             >
-              <span className="material-symbols-outlined">close</span>
+              <span className="material-symbols-outlined text-xl">close</span>
             </button>
           </div>
           {children}
@@ -261,13 +315,15 @@ export default function TeacherDashboard() {
           <div className="flex items-center gap-3">
             {/* Dynamic Profile Avatar / Initial Fallback */}
             <div className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center shrink-0 overflow-hidden font-quicksand font-bold text-base border-2 border-[#005bbf] shadow-xs">
-              {userImage ? (
+              {userImage && !imageError ? (
                 <Image
                   src={userImage}
                   alt={userName}
                   width={40}
                   height={40}
                   unoptimized
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageError(true)}
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -337,15 +393,16 @@ export default function TeacherDashboard() {
         <div>
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#eae8e7]">
             <div className="flex items-center gap-2.5">
-              {/* Dynamic Profile Avatar / Initial Fallback for Mobile */}
               <div className="w-8 h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center shrink-0 overflow-hidden font-quicksand font-bold text-sm border-2 border-[#005bbf]">
-                {userImage ? (
+                {userImage && !imageError ? (
                   <Image
                     src={userImage}
                     alt={userName}
                     width={32}
                     height={32}
                     unoptimized
+                    referrerPolicy="no-referrer"
+                    onError={() => setImageError(true)}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -356,11 +413,11 @@ export default function TeacherDashboard() {
                 Happy Toddles
               </span>
             </div>
-            <button onClick={() => setMobileMenuOpen(false)} className="text-[#414754]">
+            <button onClick={() => setMobileMenuOpen(false)} className="text-[#414754] p-1">
               <span className="material-symbols-outlined text-2xl">close</span>
             </button>
           </div>
-          <nav className="space-y-2 font-quicksand font-bold text-sm text-[#414754]">
+          <nav className="space-y-1.5 font-quicksand font-bold text-sm text-[#414754]">
             {navItems.map((item) => (
               <button
                 key={item.id}
@@ -368,21 +425,24 @@ export default function TeacherDashboard() {
                   setActiveView(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left ${
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors ${
                   activeView === item.id
                     ? "bg-[#1a73e8]/10 text-[#005bbf]"
                     : "hover:bg-[#f5f3f3]"
                 }`}
               >
-                <span className="material-symbols-outlined text-lg">{item.icon}</span>
+                <span className="material-symbols-outlined text-xl">{item.icon}</span>
                 <span>{item.label}</span>
               </button>
             ))}
           </nav>
         </div>
         <button
-          onClick={() => setShowScheduleModal(true)}
-          className="w-full bg-[#005bbf] text-white py-3 rounded-full font-quicksand font-bold text-sm flex items-center justify-center gap-2"
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setShowScheduleModal(true);
+          }}
+          className="w-full bg-[#005bbf] text-white py-3.5 rounded-full font-quicksand font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
         >
           <span className="material-symbols-outlined text-lg">play_arrow</span>
           <span>Start Session</span>
@@ -390,15 +450,18 @@ export default function TeacherDashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-64 relative min-h-screen pb-12">
-        <header className="bg-white flex justify-between items-center w-full h-16 px-6 md:px-12 shadow-sm sticky top-0 z-40 bg-white/90 backdrop-blur-md">
-          <div className="flex items-center gap-3 md:hidden">
-            <button onClick={() => setMobileMenuOpen(true)} className="text-[#005bbf]">
+      <main className="flex-1 md:ml-64 relative min-h-screen pb-12 w-full overflow-x-hidden">
+        <header className="bg-white flex justify-between items-center w-full h-16 px-4 sm:px-6 md:px-12 shadow-sm sticky top-0 z-40 bg-white/90 backdrop-blur-md">
+          <div className="flex items-center gap-2 sm:gap-3 md:hidden">
+            <button onClick={() => setMobileMenuOpen(true)} className="text-[#005bbf] p-1.5 rounded-lg active:bg-[#f5f3f3]">
               <span className="material-symbols-outlined text-2xl">menu</span>
             </button>
-            <span className="font-quicksand font-bold text-lg text-[#005bbf]">Happy Toddles</span>
+            <span className="font-quicksand font-bold text-base sm:text-lg text-[#005bbf] truncate">
+              Happy Toddles
+            </span>
           </div>
-          <div className="hidden md:flex items-center bg-[#f5f3f3] rounded-full px-4 py-2 border border-[#eae8e7] w-96">
+
+          <div className="hidden md:flex items-center bg-[#f5f3f3] rounded-full px-4 py-2 border border-[#eae8e7] w-80 lg:w-96">
             <span className="material-symbols-outlined text-[#727785] mr-2 text-lg">search</span>
             <input
               type="text"
@@ -406,48 +469,119 @@ export default function TeacherDashboard() {
               className="bg-transparent border-none focus:outline-none text-sm w-full"
             />
           </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <button className="text-[#414754] hover:text-[#005bbf] p-2 rounded-full hover:bg-[#f5f3f3]">
-              <span className="material-symbols-outlined text-xl">notifications</span>
-            </button>
-            <button className="text-[#414754] hover:text-[#005bbf] p-2 rounded-full hover:bg-[#f5f3f3]">
-              <span className="material-symbols-outlined text-xl">settings</span>
+
+          {/* Functional Notification & Settings Header Actions */}
+          <div className="flex items-center gap-1 sm:gap-2 ml-auto">
+            {/* Notification Button */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  setShowSettingsModal(false);
+                }}
+                className="text-[#414754] hover:text-[#005bbf] p-2 rounded-full hover:bg-[#f5f3f3] relative transition-colors"
+                aria-label="Notifications"
+              >
+                <span className="material-symbols-outlined text-xl block">notifications</span>
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ac3509] rounded-full border-2 border-white" />
+                )}
+              </button>
+
+              {/* Notifications Popover */}
+              {showNotifications && (
+                <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl shadow-xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-quicksand font-bold text-base text-[#1b1c1c]">Notifications</h4>
+                      {unreadNotificationsCount > 0 && (
+                        <span className="bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2 py-0.5 rounded-full">
+                          {unreadNotificationsCount} new
+                        </span>
+                      )}
+                    </div>
+                    {unreadNotificationsCount > 0 && (
+                      <button
+                        onClick={markAllNotificationsAsRead}
+                        className="text-xs text-[#005bbf] hover:underline font-semibold"
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2.5 max-h-72 sm:max-h-80 overflow-y-auto pr-1">
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-[#727785] text-center py-6">No notifications</p>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => markNotificationAsRead(n.id)}
+                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                            n.read
+                              ? "bg-white border-[#eae8e7] opacity-75"
+                              : "bg-[#f5f3f3] border-[#005bbf]/20 font-medium"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-1">
+                            <p className="font-quicksand font-bold text-[#1b1c1c] text-xs">{n.title}</p>
+                            <span className="text-[10px] text-[#727785] shrink-0">{n.time}</span>
+                          </div>
+                          <p className="text-[#414754] text-[11px] leading-relaxed">{n.desc}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => {
+                setShowSettingsModal(true);
+                setShowNotifications(false);
+              }}
+              className="text-[#414754] hover:text-[#005bbf] p-2 rounded-full hover:bg-[#f5f3f3] transition-colors"
+              aria-label="Settings"
+            >
+              <span className="material-symbols-outlined text-xl block">settings</span>
             </button>
           </div>
         </header>
 
-        <div className="p-6 md:p-12 max-w-[1280px] mx-auto space-y-8">
+        <div className="p-4 sm:p-6 md:p-10 lg:p-12 max-w-[1280px] mx-auto space-y-6 sm:space-y-8">
           {/* OVERVIEW */}
           {activeView === "overview" && (
             <>
-              <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 sm:gap-4">
                 <div>
-                  <h2 className="font-quicksand font-bold text-2xl md:text-3xl text-[#1b1c1c] mb-1">
+                  <h2 className="font-quicksand font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c1c] mb-1">
                     Welcome back, {session?.user?.name || "Teacher"}! 👋
                   </h2>
-                  <p className="font-inter text-sm md:text-base text-[#414754]">
+                  <p className="font-inter text-xs sm:text-sm md:text-base text-[#414754]">
                     You have {students.length} students and {meetings.length} meetings scheduled.
                   </p>
                 </div>
-                <div className="text-left md:text-right">
-                  <p className="font-inter font-semibold text-xs text-[#727785] uppercase tracking-wider">
+                <div className="text-left sm:text-right mt-2 sm:mt-0">
+                  <p className="font-inter font-semibold text-[10px] sm:text-xs text-[#727785] uppercase tracking-wider">
                     Today&apos;s Date
                   </p>
-                  <p className="font-quicksand font-bold text-xl text-[#005bbf]">{todayStr}</p>
+                  <p className="font-quicksand font-bold text-lg sm:text-xl text-[#005bbf]">{todayStr}</p>
                 </div>
               </section>
 
               {invites.length > 0 && (
-                <div className="bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl p-4">
+                <div className="bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl p-3.5 sm:p-4">
                   <h3 className="font-quicksand font-bold text-sm text-[#005bbf] mb-3 flex items-center gap-2">
-                    <span className="material-symbols-outlined">mail</span>
+                    <span className="material-symbols-outlined text-lg">mail</span>
                     Pending Invites ({invites.length})
                   </h3>
                   <div className="space-y-2">
                     {invites.map((invite) => (
                       <div
                         key={invite.id}
-                        className="flex items-center justify-between bg-white rounded-xl p-3"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-xl p-3 gap-3"
                       >
                         <div className="flex items-center gap-3">
                           <Image
@@ -456,25 +590,25 @@ export default function TeacherDashboard() {
                             width={36}
                             height={36}
                             unoptimized
-                            className="w-9 h-9 rounded-full object-cover"
+                            className="w-9 h-9 rounded-full object-cover shrink-0"
                           />
-                          <div>
-                            <p className="font-quicksand font-bold text-sm text-[#1b1c1c]">
+                          <div className="min-w-0">
+                            <p className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">
                               {invite.name}
                             </p>
-                            <p className="text-xs text-[#727785]">{invite.email}</p>
+                            <p className="text-xs text-[#727785] truncate">{invite.email}</p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 w-full sm:w-auto">
                           <button
                             onClick={() => handleAcceptInvite(invite)}
-                            className="bg-[#005bbf] text-white px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493]"
+                            className="flex-1 sm:flex-none bg-[#005bbf] text-white px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493]"
                           >
                             Accept
                           </button>
                           <button
                             onClick={() => setInvites((prev) => prev.filter((i) => i.id !== invite.id))}
-                            className="border border-[#eae8e7] text-[#414754] px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#f5f3f3]"
+                            className="flex-1 sm:flex-none border border-[#eae8e7] text-[#414754] px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#f5f3f3]"
                           >
                             Decline
                           </button>
@@ -485,11 +619,11 @@ export default function TeacherDashboard() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                <div className="md:col-span-8 space-y-6">
-                  <div className="bg-white/80 backdrop-blur-md rounded-[24px] p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
-                    <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-                      <h3 className="font-quicksand font-semibold text-xl text-[#1b1c1c] flex items-center gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-6">
+                <div className="md:col-span-8 space-y-5 sm:space-y-6">
+                  <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                      <h3 className="font-quicksand font-semibold text-lg sm:text-xl text-[#1b1c1c] flex items-center gap-2">
                         <span
                           className="material-symbols-outlined text-[#005bbf]"
                           style={{ fontVariationSettings: "'FILL' 1" }}
@@ -500,20 +634,20 @@ export default function TeacherDashboard() {
                       </h3>
                       <button
                         onClick={() => setShowScheduleModal(true)}
-                        className="flex items-center gap-1.5 bg-[#005bbf] text-white px-4 py-2 rounded-full font-quicksand font-bold text-xs hover:bg-[#004493] transition-colors"
+                        className="flex items-center justify-center gap-1.5 bg-[#005bbf] text-white px-4 py-2 rounded-full font-quicksand font-bold text-xs hover:bg-[#004493] transition-colors w-full sm:w-auto"
                       >
                         <span className="material-symbols-outlined text-base">add</span>
                         <span>Schedule Meet</span>
                       </button>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-3.5">
                       {students.map((student) => (
                         <div
                           key={student.id}
-                          className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7] hover:border-[#005bbf]/30 transition-colors gap-4"
+                          className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7] hover:border-[#005bbf]/30 transition-colors gap-3 sm:gap-4"
                         >
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full p-0.5 border-2 border-[#005bbf] bg-white relative shrink-0">
+                          <div className="flex items-center gap-3.5">
+                            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 border-2 border-[#005bbf] bg-white relative shrink-0">
                               <Image
                                 src={student.avatar}
                                 alt={student.name}
@@ -524,7 +658,7 @@ export default function TeacherDashboard() {
                               />
                             </div>
                             <div>
-                              <h4 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                              <h4 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c]">
                                 {student.name}
                               </h4>
                               <button
@@ -533,19 +667,20 @@ export default function TeacherDashboard() {
                               >
                                 View Profile
                               </button>
-                              <p className="text-xs text-[#414754] flex items-center gap-1 mt-0.5">
+                              <p className="text-[11px] sm:text-xs text-[#414754] flex items-center gap-1 mt-0.5">
                                 <span className="material-symbols-outlined text-xs">schedule</span>
                                 <span>{student.time}</span>
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-[#eae8e7]">
                             <span className="bg-[#005bbf]/10 text-[#005bbf] px-3 py-1 rounded-full font-inter font-semibold text-xs">
                               {student.subject}
                             </span>
                             <button
                               onClick={() => openScheduleForStudent(student.id)}
-                              className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center hover:opacity-90 transition-opacity shadow-sm shrink-0"
+                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center hover:opacity-90 transition-opacity shadow-sm shrink-0"
+                              aria-label={`Schedule meeting for ${student.name}`}
                             >
                               <span
                                 className="material-symbols-outlined text-lg"
@@ -560,8 +695,8 @@ export default function TeacherDashboard() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="bg-white/80 backdrop-blur-md rounded-[24px] p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
+                    <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-4 flex items-center gap-2">
                         <span className="material-symbols-outlined text-[#795900]">history</span>
                         Recent Activity
@@ -574,10 +709,10 @@ export default function TeacherDashboard() {
                             </span>
                           </div>
                           <div>
-                            <p className="text-sm text-[#1b1c1c]">
+                            <p className="text-xs sm:text-sm text-[#1b1c1c]">
                               <strong>Leo</strong> completed Alphabet Soup
                             </p>
-                            <span className="text-xs text-[#727785]">2 hours ago</span>
+                            <span className="text-[11px] text-[#727785]">2 hours ago</span>
                           </div>
                         </li>
                         <li className="flex items-start gap-3">
@@ -587,16 +722,16 @@ export default function TeacherDashboard() {
                             </span>
                           </div>
                           <div>
-                            <p className="text-sm text-[#1b1c1c]">
+                            <p className="text-xs sm:text-sm text-[#1b1c1c]">
                               <strong>Sam</strong> mastered Counting to 10
                             </p>
-                            <span className="text-xs text-[#727785]">Yesterday</span>
+                            <span className="text-[11px] text-[#727785]">Yesterday</span>
                           </div>
                         </li>
                       </ul>
                     </div>
 
-                    <div className="bg-white/80 backdrop-blur-md rounded-[24px] p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
+                    <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
                           <span className="material-symbols-outlined text-[#005bbf]">
@@ -607,6 +742,7 @@ export default function TeacherDashboard() {
                         <button
                           onClick={() => setShowAddGroup(true)}
                           className="text-[#005bbf] hover:bg-[#005bbf]/5 p-1 rounded-full"
+                          aria-label="Create new group"
                         >
                           <span className="material-symbols-outlined text-lg">add_circle</span>
                         </button>
@@ -627,7 +763,8 @@ export default function TeacherDashboard() {
                             </div>
                             <button
                               onClick={() => setGroups((prev) => prev.filter((g) => g.id !== group.id))}
-                              className="text-[#727785] hover:text-[#ac3509]"
+                              className="text-[#727785] hover:text-[#ac3509] p-1"
+                              aria-label="Delete group"
                             >
                               <span className="material-symbols-outlined text-lg">delete</span>
                             </button>
@@ -638,9 +775,9 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                <div className="md:col-span-4 space-y-6">
-                  <div className="bg-white/80 backdrop-blur-md rounded-[24px] p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
-                    <h3 className="font-quicksand font-bold text-xl text-[#1b1c1c] mb-6 flex items-center gap-2">
+                <div className="md:col-span-4 space-y-5 sm:space-y-6">
+                  <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
+                    <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c] mb-5 flex items-center gap-2">
                       <span
                         className="material-symbols-outlined text-[#ac3509]"
                         style={{ fontVariationSettings: "'FILL' 1" }}
@@ -649,10 +786,10 @@ export default function TeacherDashboard() {
                       </span>
                       Student Progress
                     </h3>
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                       {students.map((s) => (
                         <div key={s.id}>
-                          <div className="flex justify-between items-end mb-2">
+                          <div className="flex justify-between items-end mb-1.5">
                             <span className="font-quicksand font-bold text-xs text-[#1b1c1c]">
                               {s.name}
                             </span>
@@ -668,7 +805,7 @@ export default function TeacherDashboard() {
                               {s.progress}%
                             </span>
                           </div>
-                          <div className="h-3 w-full bg-[#eae8e7] rounded-full overflow-hidden">
+                          <div className="h-2.5 w-full bg-[#eae8e7] rounded-full overflow-hidden">
                             <div
                               className={`h-full rounded-full transition-all ${
                                 s.progress >= 70
@@ -691,9 +828,9 @@ export default function TeacherDashboard() {
 
           {/* STUDENTS */}
           {activeView === "students" && (
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
                   All Students ({students.length})
                 </h2>
               </div>
@@ -702,22 +839,22 @@ export default function TeacherDashboard() {
                   <div
                     key={student.id}
                     onClick={() => setSelectedStudent(student)}
-                    className="bg-white rounded-[24px] p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer"
+                    className="bg-white rounded-[20px] p-4 sm:p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer"
                   >
-                    <div className="flex items-center gap-4 mb-3">
+                    <div className="flex items-center gap-3.5 mb-3">
                       <Image
                         src={student.avatar}
                         alt={student.name}
                         width={56}
                         height={56}
                         unoptimized
-                        className="w-14 h-14 rounded-full object-cover border-2 border-[#005bbf]"
+                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                       />
-                      <div>
-                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                      <div className="min-w-0">
+                        <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">
                           {student.name}
                         </h3>
-                        <p className="text-xs text-[#727785]">{student.email}</p>
+                        <p className="text-xs text-[#727785] truncate">{student.email}</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-xs">
@@ -745,32 +882,33 @@ export default function TeacherDashboard() {
 
           {/* GROUPS */}
           {activeView === "groups" && (
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
                   Groups ({groups.length})
                 </h2>
                 <button
                   onClick={() => setShowAddGroup(true)}
-                  className="bg-[#005bbf] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-sm hover:bg-[#004493] flex items-center gap-2"
+                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
-                  Create Group
+                  <span>Create Group</span>
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {groups.map((group) => (
-                  <div key={group.id} className="bg-white rounded-[24px] p-6 border border-[#eae8e7]">
+                  <div key={group.id} className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7]">
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h3 className="font-quicksand font-bold text-lg text-[#1b1c1c]">
+                        <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
                           {group.name}
                         </h3>
-                        <p className="text-sm text-[#727785]">{group.section}</p>
+                        <p className="text-xs sm:text-sm text-[#727785]">{group.section}</p>
                       </div>
                       <button
                         onClick={() => setGroups((prev) => prev.filter((g) => g.id !== group.id))}
                         className="text-[#727785] hover:text-[#ac3509] p-1"
+                        aria-label="Delete group"
                       >
                         <span className="material-symbols-outlined">delete</span>
                       </button>
@@ -786,17 +924,17 @@ export default function TeacherDashboard() {
                             width={32}
                             height={32}
                             unoptimized
-                            className="w-8 h-8 rounded-full border-2 border-white object-cover"
+                            className="w-8 h-8 rounded-full border-2 border-white object-cover shrink-0"
                           />
                         ) : null;
                       })}
-                      <div className="w-8 h-8 rounded-full bg-[#f5f3f3] border-2 border-white flex items-center justify-center text-xs text-[#727785]">
+                      <div className="w-8 h-8 rounded-full bg-[#f5f3f3] border-2 border-white flex items-center justify-center text-xs text-[#727785] shrink-0">
                         +{group.students.length}
                       </div>
                     </div>
                     <button
                       onClick={() => setShowScheduleModal(true)}
-                      className="w-full py-2 border border-[#005bbf]/20 text-[#005bbf] rounded-xl font-quicksand font-bold text-xs hover:bg-[#005bbf]/5"
+                      className="w-full py-2.5 border border-[#005bbf]/20 text-[#005bbf] rounded-xl font-quicksand font-bold text-xs hover:bg-[#005bbf]/5"
                     >
                       Schedule Meet
                     </button>
@@ -808,34 +946,34 @@ export default function TeacherDashboard() {
 
           {/* SECTIONS */}
           {activeView === "sections" && (
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
                   Sections ({sections.length})
                 </h2>
                 <button
                   onClick={() => setShowAddSection(true)}
-                  className="bg-[#005bbf] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-sm hover:bg-[#004493] flex items-center gap-2"
+                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
-                  Add Section
+                  <span>Add Section</span>
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {sections.map((section) => (
                   <div
                     key={section.id}
-                    className="bg-white rounded-[24px] p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all"
+                    className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all"
                   >
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
                         <span className="material-symbols-outlined text-[#005bbf]">school</span>
                       </div>
-                      <h3 className="font-quicksand font-bold text-lg text-[#1b1c1c]">
+                      <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
                         {section.name}
                       </h3>
                     </div>
-                    <div className="space-y-2 text-sm text-[#414754]">
+                    <div className="space-y-2 text-xs sm:text-sm text-[#414754]">
                       <p className="flex justify-between">
                         <span>Groups</span>
                         <span className="font-semibold">{section.groups}</span>
@@ -847,7 +985,7 @@ export default function TeacherDashboard() {
                     </div>
                     <button
                       onClick={() => setSections((prev) => prev.filter((s) => s.id !== section.id))}
-                      className="mt-4 w-full py-2 text-xs text-[#ac3509] border border-[#ac3509]/20 rounded-xl hover:bg-[#ac3509]/5 font-quicksand font-bold"
+                      className="mt-4 w-full py-2.5 text-xs text-[#ac3509] border border-[#ac3509]/20 rounded-xl hover:bg-[#ac3509]/5 font-quicksand font-bold"
                     >
                       Remove Section
                     </button>
@@ -859,25 +997,25 @@ export default function TeacherDashboard() {
 
           {/* SCHEDULE */}
           {activeView === "schedule" && (
-            <div className="space-y-6">
+            <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
                   Scheduled Meetings
                 </h2>
                 <button
                   onClick={() => setShowScheduleModal(true)}
-                  className="bg-[#005bbf] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-sm hover:bg-[#004493] flex items-center gap-2"
+                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
-                  New Meeting
+                  <span>New Meeting</span>
                 </button>
               </div>
               {meetings.length === 0 ? (
-                <div className="bg-white rounded-[24px] p-12 text-center border border-[#eae8e7]">
+                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
                   <span className="material-symbols-outlined text-4xl text-[#eae8e7] mb-2">
                     event_busy
                   </span>
-                  <p className="text-[#727785]">No meetings scheduled yet.</p>
+                  <p className="text-xs sm:text-sm text-[#727785]">No meetings scheduled yet.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -886,9 +1024,9 @@ export default function TeacherDashboard() {
                     return (
                       <div
                         key={meet.id}
-                        className="bg-white rounded-2xl p-5 border border-[#eae8e7] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+                        className="bg-white rounded-2xl p-4 sm:p-5 border border-[#eae8e7] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4"
                       >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3.5">
                           {s && (
                             <Image
                               src={s.avatar}
@@ -896,12 +1034,12 @@ export default function TeacherDashboard() {
                               width={48}
                               height={48}
                               unoptimized
-                              className="w-12 h-12 rounded-full object-cover border-2 border-[#005bbf]"
+                              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                             />
                           )}
-                          <div>
-                            <h4 className="font-quicksand font-bold text-base">{meet.topic}</h4>
-                            <p className="text-xs text-[#727785]">
+                          <div className="min-w-0">
+                            <h4 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">{meet.topic}</h4>
+                            <p className="text-xs text-[#727785] truncate">
                               {s?.name} • {meet.date} at {meet.time}
                             </p>
                           </div>
@@ -910,10 +1048,10 @@ export default function TeacherDashboard() {
                           href={meet.meetLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="bg-[#005bbf] text-white px-5 py-2 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493] flex items-center gap-2"
+                          className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493] flex items-center justify-center gap-1.5 w-full sm:w-auto"
                         >
                           <span className="material-symbols-outlined text-base">videocam</span>
-                          Join Meet
+                          <span>Join Meet</span>
                         </a>
                       </div>
                     );
@@ -925,13 +1063,99 @@ export default function TeacherDashboard() {
         </div>
       </main>
 
+      {/* Settings Modal */}
+      {renderModal(
+        showSettingsModal,
+        () => setShowSettingsModal(false),
+        "Dashboard Settings",
+        <div className="space-y-5 sm:space-y-6">
+          {/* Account Profile Card */}
+          <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-base sm:text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
+              {userImage && !imageError ? (
+                <Image
+                  src={userImage}
+                  alt={userName}
+                  width={48}
+                  height={48}
+                  unoptimized
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageError(true)}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{userInitial}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">{userName}</h4>
+              <p className="text-xs text-[#727785] truncate">{session?.user?.email || "teacher@happytoddles.com"}</p>
+              <span className="inline-block mt-1 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                Verified Instructor
+              </span>
+            </div>
+          </div>
+
+          {/* Default Google Meet Link Setting */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-[#414754]">Default Google Meet Link</label>
+            <input
+              type="url"
+              value={defaultMeetLink}
+              onChange={(e) => setDefaultMeetLink(e.target.value)}
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+              placeholder="https://meet.google.com/..."
+            />
+            <p className="text-[11px] text-[#727785]">
+              This link will automatically pre-fill whenever you schedule a new meeting.
+            </p>
+          </div>
+
+          {/* Preferences Toggles */}
+          <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
+            <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
+
+            <label className="flex items-center justify-between cursor-pointer py-1">
+              <span className="text-xs text-[#414754] font-medium">Email Notifications</span>
+              <input
+                type="checkbox"
+                checked={emailAlerts}
+                onChange={(e) => setEmailAlerts(e.target.checked)}
+                className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
+              />
+            </label>
+
+            <label className="flex items-center justify-between cursor-pointer py-1">
+              <span className="text-xs text-[#414754] font-medium">Session Reminders</span>
+              <input
+                type="checkbox"
+                checked={sessionReminders}
+                onChange={(e) => setSessionReminders(e.target.checked)}
+                className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
+              />
+            </label>
+          </div>
+
+          {/* Sign Out Action Button */}
+          <div className="pt-3 border-t border-[#eae8e7]">
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
+            >
+              <span className="material-symbols-outlined text-base">logout</span>
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Schedule Modal */}
       {renderModal(showScheduleModal, () => setShowScheduleModal(false), "Schedule Google Meet", (
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">Student</label>
             <select
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
               value={scheduleForm.studentId}
               onChange={(e) => setScheduleForm({ ...scheduleForm, studentId: e.target.value })}
             >
@@ -948,17 +1172,17 @@ export default function TeacherDashboard() {
             <input
               type="text"
               placeholder="e.g. Reading Practice"
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
               value={scheduleForm.topic}
               onChange={(e) => setScheduleForm({ ...scheduleForm, topic: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-xs font-semibold text-[#414754] mb-1.5">Date</label>
               <input
                 type="date"
-                className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
                 value={scheduleForm.date}
                 onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
               />
@@ -967,7 +1191,7 @@ export default function TeacherDashboard() {
               <label className="block text-xs font-semibold text-[#414754] mb-1.5">Time</label>
               <input
                 type="time"
-                className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
                 value={scheduleForm.time}
                 onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
               />
@@ -980,7 +1204,7 @@ export default function TeacherDashboard() {
             <input
               type="url"
               placeholder="https://meet.google.com/abc-defg-hij"
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
               value={scheduleForm.meetLink}
               onChange={(e) => setScheduleForm({ ...scheduleForm, meetLink: e.target.value })}
             />
@@ -990,7 +1214,7 @@ export default function TeacherDashboard() {
           </div>
           <button
             onClick={handleScheduleMeet}
-            className="w-full bg-[#005bbf] text-white py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] transition-colors mt-2"
+            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] transition-colors mt-2 text-xs sm:text-sm active:scale-95"
           >
             Schedule Meeting
           </button>
@@ -999,13 +1223,13 @@ export default function TeacherDashboard() {
 
       {/* Add Group Modal */}
       {renderModal(showAddGroup, () => setShowAddGroup(false), "Create New Group", (
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">Group Name</label>
             <input
               type="text"
               placeholder="e.g. Advanced Math"
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
               value={newGroup.name}
               onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
             />
@@ -1013,7 +1237,7 @@ export default function TeacherDashboard() {
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">Section</label>
             <select
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
               value={newGroup.section}
               onChange={(e) => setNewGroup({ ...newGroup, section: e.target.value })}
             >
@@ -1027,7 +1251,7 @@ export default function TeacherDashboard() {
           </div>
           <button
             onClick={handleAddGroup}
-            className="w-full bg-[#005bbf] text-white py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493]"
+            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
           >
             Create Group
           </button>
@@ -1036,20 +1260,20 @@ export default function TeacherDashboard() {
 
       {/* Add Section Modal */}
       {renderModal(showAddSection, () => setShowAddSection(false), "Add New Section", (
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">Section Name</label>
             <input
               type="text"
               placeholder="e.g. Section C"
-              className="w-full border border-[#eae8e7] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
               value={newSection.name}
               onChange={(e) => setNewSection({ ...newSection, name: e.target.value })}
             />
           </div>
           <button
             onClick={handleAddSection}
-            className="w-full bg-[#005bbf] text-white py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493]"
+            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
           >
             Add Section
           </button>
@@ -1062,36 +1286,36 @@ export default function TeacherDashboard() {
         () => setSelectedStudent(null),
         selectedStudent?.name || "Student Profile",
         selectedStudent && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-4">
+          <div className="space-y-4 sm:space-y-5">
+            <div className="flex items-center gap-3.5">
               <Image
                 src={selectedStudent.avatar}
                 alt={selectedStudent.name}
                 width={64}
                 height={64}
                 unoptimized
-                className="w-16 h-16 rounded-full object-cover border-2 border-[#005bbf]"
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
               />
-              <div>
-                <h4 className="font-quicksand font-bold text-lg">{selectedStudent.name}</h4>
-                <p className="text-sm text-[#727785]">{selectedStudent.email}</p>
+              <div className="min-w-0">
+                <h4 className="font-quicksand font-bold text-base sm:text-lg truncate">{selectedStudent.name}</h4>
+                <p className="text-xs sm:text-sm text-[#727785] truncate">{selectedStudent.email}</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 text-xs sm:text-sm">
               <div className="bg-[#f5f3f3] rounded-xl p-3">
-                <p className="text-[#727785] text-xs">Subject</p>
-                <p className="font-semibold text-[#1b1c1c]">{selectedStudent.subject}</p>
+                <p className="text-[#727785] text-[10px] sm:text-xs">Subject</p>
+                <p className="font-semibold text-[#1b1c1c] truncate">{selectedStudent.subject}</p>
               </div>
               <div className="bg-[#f5f3f3] rounded-xl p-3">
-                <p className="text-[#727785] text-xs">Schedule</p>
-                <p className="font-semibold text-[#1b1c1c]">{selectedStudent.time}</p>
+                <p className="text-[#727785] text-[10px] sm:text-xs">Schedule</p>
+                <p className="font-semibold text-[#1b1c1c] truncate">{selectedStudent.time}</p>
               </div>
               <div className="bg-[#f5f3f3] rounded-xl p-3">
-                <p className="text-[#727785] text-xs">Progress</p>
+                <p className="text-[#727785] text-[10px] sm:text-xs">Progress</p>
                 <p className="font-semibold text-[#1b1c1c]">{selectedStudent.progress}%</p>
               </div>
               <div className="bg-[#f5f3f3] rounded-xl p-3">
-                <p className="text-[#727785] text-xs">Status</p>
+                <p className="text-[#727785] text-[10px] sm:text-xs">Status</p>
                 <p className="font-semibold text-[#005bbf] capitalize">{selectedStudent.status}</p>
               </div>
             </div>
@@ -1100,7 +1324,7 @@ export default function TeacherDashboard() {
                 openScheduleForStudent(selectedStudent.id);
                 setSelectedStudent(null);
               }}
-              className="w-full bg-[#005bbf] text-white py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493]"
+              className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
             >
               Schedule Meeting
             </button>

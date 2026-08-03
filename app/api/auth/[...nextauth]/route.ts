@@ -12,17 +12,25 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user }) {
       const allowedTeacherEmail = process.env.TEACHER_EMAIL;
 
-      // Production-level check: Verify user's Google email strictly matches env variable
       if (user?.email && user.email.toLowerCase() === allowedTeacherEmail?.toLowerCase()) {
         return true;
       }
 
-      // Deny access if email doesn't match
       return "/login?error=AccessDenied";
+    },
+    async jwt({ token, user, profile }) {
+      // Safely narrow the profile picture type or fall back to user.image
+      if (profile && "picture" in profile && typeof profile.picture === "string") {
+        token.picture = profile.picture;
+      } else if (user?.image) {
+        token.picture = user.image;
+      }
+      return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email;
+        session.user.image = token.picture as string;
       }
       return session;
     },

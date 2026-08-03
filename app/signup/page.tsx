@@ -3,12 +3,18 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { signIn } from "next-auth/react";
 
 export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Handle manual sign up logic here
+  };
+
+  const handleGoogleSignUp = () => {
+    signIn("google", { callbackUrl: "/teacher-dashboard" });
   };
 
   return (
@@ -181,7 +187,8 @@ export default function SignUp() {
               {/* Google Sign Up Button */}
               <button
                 type="button"
-                className="w-full h-12 bg-white border border-[#c1c6d6] text-[#1b1c1c] font-quicksand font-bold text-sm rounded-full hover:bg-[#f0eded] transition-colors shadow-sm flex items-center justify-center gap-2.5"
+                onClick={handleGoogleSignUp}
+                className="w-full h-12 bg-white border border-[#c1c6d6] text-[#1b1c1c] font-quicksand font-bold text-sm rounded-full hover:bg-[#f0eded] transition-colors shadow-sm flex items-center justify-center gap-2.5 active:scale-95"
               >
                 <Image
                   src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png"

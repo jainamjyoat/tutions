@@ -14,7 +14,7 @@ function LoginFormContent() {
   useEffect(() => {
     if (searchParams.get("error") === "AccessDenied") {
       setErrorMessage(
-        "Access Denied: Only the authorized teacher account can access the dashboard."
+        "Access Denied: Only the authorized teacher account can access the teacher's dashboard."
       );
     }
   }, [searchParams]);
