@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Quicksand } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers"; 
 
 const inter = Inter({
   subsets: ["latin"],
@@ -16,7 +17,8 @@ const quicksand = Quicksand({
 
 export const metadata: Metadata = {
   title: "Happy Toddles - Personalized Tutoring",
-  description: "Empower your child's learning journey with expert tutors and interactive tools.",
+  description:
+    "Empower your child's learning journey with expert tutors and interactive tools.",
 };
 
 export default function RootLayout({
@@ -36,7 +38,10 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased min-h-screen flex flex-col bg-background text-on-background">
-        {children}
+        {/*  Wrap children inside Providers */}
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
