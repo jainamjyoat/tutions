@@ -59,7 +59,7 @@ export default function SignUp() {
                 href="/"
                 className="bg-transparent text-[#727785] hover:text-[#005bbf] hover:bg-[#f0eded] font-inter font-semibold text-xs px-3.5 py-2 rounded-full transition-all duration-200 inline-flex items-center gap-1 group"
               >
-                <span>Back to Home</span>
+                <span>Home </span>
                 <span className="material-symbols-outlined text-base leading-none group-hover:translate-x-0.5 transition-transform duration-200">
                   arrow_forward
                 </span>

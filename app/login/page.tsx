@@ -19,7 +19,7 @@ export default function Login() {
         {/* Left Column: Image Illustration Banner */}
         <div className="hidden lg:relative lg:flex flex-col justify-end p-8 lg:p-12 xl:p-14 h-screen w-full overflow-hidden bg-slate-900">
           <Image
-            src="https://lh3.googleusercontent.com/aida/AP1WRLu5mLC2_G5c7hjoq3LmPKFoYVdKSDsw3aX5AJNPizgfLrHjw6dLUzK2YpeiHn2TqGZpd9H6p8vgQP1B0DU05pHjppK3WjFk8CMmmDFiGff9R6YzGcGlhRKm7ZrVWbRCQuC2zLtp_Ug8iAm6D7uuAf02WiCSVUyrF2TyVdy1zFJEi13OjJHobSBG2wTA9aXBKykD9QrfImkTo7VtIoYfI0DNajlVKPSdsFG2WSILBRa-zlh0ZR9iVNhndcrM"
+            src="/login.webp"
             alt="Friendly tutor and student learning together"
             fill
             priority

@@ -267,7 +267,7 @@ export default function Home() {
                 <img
                   alt="Happy Toddles Tutoring"
                   className="w-full h-full object-cover block"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_ojWqWwzx7Kl5VdTs7ipG0jGEIGwxL4U-qGzhhYQrU8p_uwm6yi8ssMVFAqwDnRI-2wrs3kXB2LepYI-JQW0yh4uHQ2W01OVkup743sU4ZCV6Tq26xt2BJIAjr2RyNH2zE65hA9feg4oBGtXoQoArJvjvcY9kaNBQrWDMjuzD8p-YIBh64gJeEFJBSb-syqddHjvuzvvB0NLGJHNyBiuRYeS0kCmbCOUFSSew5XJGJ1_W8qBCQTSBTA"
+                  src="/landingpage.webp"
                 />
               </div>
             </div>
