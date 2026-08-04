@@ -57,10 +57,10 @@ type NotificationItem = {
 export default function TeacherDashboard() {
   const { data: session } = useSession();
   const [mounted, setMounted] = useState(false);
-  const [imageError, setImageError] = useState(false); // Image loading fallback state
+  const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState<
-    "overview" | "students" | "groups" | "sections" | "schedule"
+    "overview" | "approvals" | "students" | "groups" | "sections" | "schedule"
   >("overview");
 
   // Notifications State
@@ -68,9 +68,9 @@ export default function TeacherDashboard() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([
     {
       id: "1",
-      title: "New Student Invite",
-      desc: "Emma Wilson accepted your class invitation.",
-      time: "10 mins ago",
+      title: "New Student Authorization",
+      desc: "A student has requested access to Happy Toddles.",
+      time: "Just now",
       read: false,
     },
     {
@@ -79,13 +79,6 @@ export default function TeacherDashboard() {
       desc: "Leo Bennett completed 'Alphabet Soup'.",
       time: "2 hours ago",
       read: false,
-    },
-    {
-      id: "3",
-      title: "Upcoming Session",
-      desc: "Meeting scheduled with Mia Chang.",
-      time: "3 hours ago",
-      read: true,
     },
   ]);
 
@@ -96,27 +89,6 @@ export default function TeacherDashboard() {
   const [defaultMeetLink, setDefaultMeetLink] = useState(
     "https://meet.google.com/abc-defg-hij"
   );
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Extract session user details for avatar & initial letter fallback
-  const userImage = session?.user?.image;
-  const userName = session?.user?.name || session?.user?.email || "Teacher";
-  const userInitial = userName.charAt(0).toUpperCase();
-
-  const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
-
-  const markNotificationAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
-
-  const markAllNotificationsAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
 
   const [students, setStudents] = useState<Student[]>([
     {
@@ -141,38 +113,144 @@ export default function TeacherDashboard() {
       progress: 45,
       email: "mia.chang@email.com",
     },
-    {
-      id: "3",
-      name: "Sam Rivera",
-      avatar:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
-      subject: "Science",
-      time: "2:00 PM - 2:45 PM",
-      status: "active",
-      progress: 90,
-      email: "sam.rivera@email.com",
-    },
   ]);
 
+  const [invites, setInvites] = useState<Invite[]>([]);
+
+  // Fetch pending student sign-ups from API on mount
+  useEffect(() => {
+    setMounted(true);
+
+    async function fetchStudentRequests() {
+      try {
+        const res = await fetch("/api/student/status");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.students) {
+            // Filter pending student approval requests
+            const pendingList: Invite[] = data.students
+              .filter((s: { status: string }) => s.status === "pending")
+              .map((s: { id: string; name: string; email: string; avatar?: string; createdAt?: string }) => ({
+                id: s.id,
+                name: s.name,
+                email: s.email,
+                avatar:
+                  s.avatar ||
+                  "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
+                date: new Date(s.createdAt || Date.now()).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                }),
+              }));
+
+            // Filter approved students
+            const approvedList: Student[] = data.students
+              .filter((s: { status: string }) => s.status === "approved")
+              .map((s: { id: string; name: string; email: string; avatar?: string }) => ({
+                id: s.id,
+                name: s.name,
+                email: s.email,
+                avatar:
+                  s.avatar ||
+                  "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
+                subject: "General Learning",
+                time: "Not Scheduled",
+                status: "active",
+                progress: 0,
+              }));
+
+            setInvites(pendingList);
+
+            if (approvedList.length > 0) {
+              setStudents((prev) => {
+                const existingEmails = new Set(prev.map((s) => s.email.toLowerCase()));
+                const newApproved = approvedList.filter(
+                  (a) => !existingEmails.has(a.email.toLowerCase())
+                );
+                return [...prev, ...newApproved];
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch pending student requests:", err);
+      }
+    }
+
+    fetchStudentRequests();
+  }, []);
+
+  // Accept/Authorize Pending Student
+  const handleAcceptInvite = async (invite: Invite) => {
+    try {
+      const res = await fetch("/api/student/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail: invite.email, action: "approve" }),
+      });
+
+      if (res.ok) {
+        const newStudent: Student = {
+          id: invite.id || Math.random().toString(36).slice(2, 11),
+          name: invite.name,
+          avatar: invite.avatar,
+          subject: "General Learning",
+          time: "Not Scheduled",
+          status: "active",
+          progress: 0,
+          email: invite.email,
+        };
+        setStudents((prev) => [...prev, newStudent]);
+        setInvites((prev) => prev.filter((i) => i.email.toLowerCase() !== invite.email.toLowerCase()));
+      }
+    } catch (err) {
+      console.error("Failed to approve student:", err);
+    }
+  };
+
+  // Decline/Reject Pending Student
+  const handleDeclineInvite = async (invite: Invite) => {
+    try {
+      const res = await fetch("/api/student/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail: invite.email, action: "decline" }),
+      });
+
+      if (res.ok) {
+        setInvites((prev) => prev.filter((i) => i.email.toLowerCase() !== invite.email.toLowerCase()));
+      }
+    } catch (err) {
+      console.error("Failed to decline student:", err);
+    }
+  };
+
+  // Session Teacher Avatar Details
+  const userImage = session?.user?.image;
+  const userName = session?.user?.name || session?.user?.email || "Teacher";
+  const userInitial = userName.charAt(0).toUpperCase();
+
+  const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
   const [groups, setGroups] = useState<Group[]>([
-    { id: "1", name: "Advanced Reading", students: ["1", "3"], section: "Section A" },
+    { id: "1", name: "Advanced Reading", students: ["1"], section: "Section A" },
     { id: "2", name: "Math Basics", students: ["2"], section: "Section B" },
   ]);
 
   const [sections, setSections] = useState<Section[]>([
     { id: "1", name: "Section A", groups: 1, students: 2 },
     { id: "2", name: "Section B", groups: 1, students: 1 },
-  ]);
-
-  const [invites, setInvites] = useState<Invite[]>([
-    {
-      id: "1",
-      name: "Emma Wilson",
-      email: "emma.wilson@email.com",
-      avatar:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
-      date: "Aug 3, 2026",
-    },
   ]);
 
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -220,21 +298,6 @@ export default function TeacherDashboard() {
     setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
   };
 
-  const handleAcceptInvite = (invite: Invite) => {
-    const newStudent: Student = {
-      id: Math.random().toString(36).slice(2, 11),
-      name: invite.name,
-      avatar: invite.avatar,
-      subject: "Pending Assignment",
-      time: "Not Scheduled",
-      status: "active",
-      progress: 0,
-      email: invite.email,
-    };
-    setStudents((prev) => [...prev, newStudent]);
-    setInvites((prev) => prev.filter((i) => i.id !== invite.id));
-  };
-
   const handleAddGroup = () => {
     if (!newGroup.name || !newGroup.section) return;
     setGroups((prev) => [
@@ -267,6 +330,12 @@ export default function TeacherDashboard() {
 
   const navItems = [
     { id: "overview" as const, icon: "dashboard", label: "Overview" },
+    {
+      id: "approvals" as const,
+      icon: "person_add",
+      label: "Student Requests",
+      badge: invites.length,
+    },
     { id: "students" as const, icon: "groups", label: "Students" },
     { id: "groups" as const, icon: "group_work", label: "Groups" },
     { id: "sections" as const, icon: "school", label: "Sections" },
@@ -290,7 +359,7 @@ export default function TeacherDashboard() {
     if (!open) return null;
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-[720px]  shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
+        <div className="bg-white rounded-2xl p-5 sm:p-6 w-full max-w-[720px] shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-2 border-b border-[#eae8e7]/50">
             <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c]">{title}</h3>
             <button
@@ -313,7 +382,6 @@ export default function TeacherDashboard() {
       <aside className="bg-white h-screen w-64 fixed left-0 top-0 shadow-sm flex flex-col py-6 px-3 z-50 border-r border-[#eae8e7] hidden md:flex">
         <div className="mb-8 px-3">
           <div className="flex items-center gap-3">
-            {/* Dynamic Profile Avatar / Initial Fallback */}
             <div className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center shrink-0 overflow-hidden font-quicksand font-bold text-base border-2 border-[#005bbf] shadow-xs">
               {userImage && !imageError ? (
                 <Image
@@ -345,19 +413,26 @@ export default function TeacherDashboard() {
             <button
               key={item.id}
               onClick={() => setActiveView(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-quicksand font-bold transition-all text-left ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-quicksand font-bold transition-all text-left ${
                 activeView === item.id
                   ? "text-[#005bbf] bg-[#1a73e8]/10"
                   : "text-[#414754] hover:text-[#005bbf] hover:bg-[#f5f3f3]"
               }`}
             >
-              <span
-                className="material-symbols-outlined text-xl"
-                style={activeView === item.id ? { fontVariationSettings: "'FILL' 1" } : {}}
-              >
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
+              <div className="flex items-center gap-3">
+                <span
+                  className="material-symbols-outlined text-xl"
+                  style={activeView === item.id ? { fontVariationSettings: "'FILL' 1" } : {}}
+                >
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </div>
+              {item.badge !== undefined && item.badge > 0 && (
+                <span className="bg-[#ac3509] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -425,14 +500,21 @@ export default function TeacherDashboard() {
                   setActiveView(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-left transition-colors ${
                   activeView === item.id
                     ? "bg-[#1a73e8]/10 text-[#005bbf]"
                     : "hover:bg-[#f5f3f3]"
                 }`}
               >
-                <span className="material-symbols-outlined text-xl">{item.icon}</span>
-                <span>{item.label}</span>
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="bg-[#ac3509] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {item.badge}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -551,7 +633,7 @@ export default function TeacherDashboard() {
         </header>
 
         <div className="p-4 sm:p-6 md:p-10 lg:p-12 max-w-[1280px] mx-auto space-y-6 sm:space-y-8">
-          {/* OVERVIEW */}
+          {/* OVERVIEW VIEW */}
           {activeView === "overview" && (
             <>
               <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 sm:gap-4">
@@ -560,7 +642,7 @@ export default function TeacherDashboard() {
                     Welcome back, {session?.user?.name || "Teacher"}! 👋
                   </h2>
                   <p className="font-inter text-xs sm:text-sm md:text-base text-[#414754]">
-                    You have {students.length} students and {meetings.length} meetings scheduled.
+                    You have {students.length} authorized students and {meetings.length} meetings scheduled.
                   </p>
                 </div>
                 <div className="text-left sm:text-right mt-2 sm:mt-0">
@@ -571,17 +653,26 @@ export default function TeacherDashboard() {
                 </div>
               </section>
 
+              {/* Pending Student Authorization Banner */}
               {invites.length > 0 && (
-                <div className="bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl p-3.5 sm:p-4">
-                  <h3 className="font-quicksand font-bold text-sm text-[#005bbf] mb-3 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-lg">mail</span>
-                    Pending Invites ({invites.length})
-                  </h3>
+                <div className="bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl p-3.5 sm:p-4 shadow-xs">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-quicksand font-bold text-sm text-[#005bbf] flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg">person_add</span>
+                      Pending Authorization Requests ({invites.length})
+                    </h3>
+                    <button
+                      onClick={() => setActiveView("approvals")}
+                      className="text-xs text-[#005bbf] font-bold hover:underline"
+                    >
+                      View All
+                    </button>
+                  </div>
                   <div className="space-y-2">
                     {invites.map((invite) => (
                       <div
                         key={invite.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-xl p-3 gap-3"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-xl p-3 gap-3 shadow-xs"
                       >
                         <div className="flex items-center gap-3">
                           <Image
@@ -590,7 +681,7 @@ export default function TeacherDashboard() {
                             width={36}
                             height={36}
                             unoptimized
-                            className="w-9 h-9 rounded-full object-cover shrink-0"
+                            className="w-9 h-9 rounded-full object-cover shrink-0 border border-[#005bbf]"
                           />
                           <div className="min-w-0">
                             <p className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">
@@ -602,13 +693,13 @@ export default function TeacherDashboard() {
                         <div className="flex gap-2 w-full sm:w-auto">
                           <button
                             onClick={() => handleAcceptInvite(invite)}
-                            className="flex-1 sm:flex-none bg-[#005bbf] text-white px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493]"
+                            className="flex-1 sm:flex-none bg-[#005bbf] text-white px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493] transition-colors active:scale-95"
                           >
-                            Accept
+                            Authorize Access
                           </button>
                           <button
-                            onClick={() => setInvites((prev) => prev.filter((i) => i.id !== invite.id))}
-                            className="flex-1 sm:flex-none border border-[#eae8e7] text-[#414754] px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#f5f3f3]"
+                            onClick={() => handleDeclineInvite(invite)}
+                            className="flex-1 sm:flex-none border border-[#eae8e7] text-[#414754] px-4 py-1.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#f5f3f3] transition-colors"
                           >
                             Decline
                           </button>
@@ -715,19 +806,6 @@ export default function TeacherDashboard() {
                             <span className="text-[11px] text-[#727785]">2 hours ago</span>
                           </div>
                         </li>
-                        <li className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-[#005bbf] text-base">
-                              workspace_premium
-                            </span>
-                          </div>
-                          <div>
-                            <p className="text-xs sm:text-sm text-[#1b1c1c]">
-                              <strong>Sam</strong> mastered Counting to 10
-                            </p>
-                            <span className="text-[11px] text-[#727785]">Yesterday</span>
-                          </div>
-                        </li>
                       </ul>
                     </div>
 
@@ -826,13 +904,99 @@ export default function TeacherDashboard() {
             </>
           )}
 
-          {/* STUDENTS */}
+          {/* DEDICATED STUDENT REQUESTS / APPROVALS VIEW */}
+          {activeView === "approvals" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
+                    Student Authorization Requests ({invites.length})
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                    Review and authorize new Google account sign-ups attempting to access Happy Toddles.
+                  </p>
+                </div>
+              </div>
+
+              {invites.length === 0 ? (
+                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
+                  <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">
+                    check_circle
+                  </span>
+                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Pending Requests</h3>
+                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                    All student sign-up requests have been reviewed.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {invites.map((invite) => (
+                    <div
+                      key={invite.id}
+                      className="bg-white rounded-[20px] p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <Image
+                          src={invite.avatar}
+                          alt={invite.name}
+                          width={48}
+                          height={48}
+                          unoptimized
+                          className="w-12 h-12 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex justify-between items-start">
+                            <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] truncate">
+                              {invite.name}
+                            </h4>
+                            <span className="text-[10px] text-[#727785] bg-[#f5f3f3] px-2 py-0.5 rounded-full shrink-0">
+                              {invite.date}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#727785] truncate mt-0.5">{invite.email}</p>
+                          <span className="inline-block mt-2 bg-[#fe6f42]/10 text-[#ac3509] text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                            Pending Authorization
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2.5 pt-2 border-t border-[#eae8e7]">
+                        <button
+                          onClick={() => handleAcceptInvite(invite)}
+                          className="flex-1 bg-[#005bbf] hover:bg-[#004493] text-white py-2 rounded-xl text-xs font-quicksand font-bold transition-all shadow-xs active:scale-95"
+                        >
+                          Authorize Access
+                        </button>
+                        <button
+                          onClick={() => handleDeclineInvite(invite)}
+                          className="flex-1 bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] py-2 rounded-xl text-xs font-quicksand font-bold transition-colors"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STUDENTS VIEW */}
           {activeView === "students" && (
             <div className="space-y-5 sm:space-y-6">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                  All Students ({students.length})
+                  Authorized Students ({students.length})
                 </h2>
+                {invites.length > 0 && (
+                  <button
+                    onClick={() => setActiveView("approvals")}
+                    className="bg-[#ac3509]/10 text-[#ac3509] hover:bg-[#ac3509]/20 px-4 py-2 rounded-full font-quicksand font-bold text-xs flex items-center gap-2 self-start sm:self-auto"
+                  >
+                    <span className="material-symbols-outlined text-base">person_add</span>
+                    <span>{invites.length} Pending Approval</span>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {students.map((student) => (
@@ -880,7 +1044,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* GROUPS */}
+          {/* GROUPS VIEW */}
           {activeView === "groups" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -944,7 +1108,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* SECTIONS */}
+          {/* SECTIONS VIEW */}
           {activeView === "sections" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -995,7 +1159,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* SCHEDULE */}
+          {/* SCHEDULE VIEW */}
           {activeView === "schedule" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">

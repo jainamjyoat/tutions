@@ -1,29 +1,42 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      authorization: {
+        params: {
+          prompt: "select_account", // 👈 This overrides 'none' and forces the account selector
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
   ],
+  session: {
+    strategy: "jwt",
+  },
   callbacks: {
-    async signIn({ user }) {
-      const allowedTeacherEmail = process.env.TEACHER_EMAIL;
+    async jwt({ token, user }) {
+      const allowedTeacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
+      const currentEmail = (user?.email || token?.email)?.trim().toLowerCase();
 
-      if (user?.email && user.email.toLowerCase() === allowedTeacherEmail?.toLowerCase()) {
-        return true;
-      }
-
-      return "/login?error=AccessDenied";
-    },
-    async jwt({ token, user, profile }) {
-      // Safely narrow the profile picture type or fall back to user.image
-      if (profile && "picture" in profile && typeof profile.picture === "string") {
-        token.picture = profile.picture;
-      } else if (user?.image) {
-        token.picture = user.image;
+      if (currentEmail && allowedTeacherEmail && currentEmail === allowedTeacherEmail) {
+        token.role = "TEACHER";
+        token.isApproved = true;
+      } else {
+        token.role = "STUDENT";
+        if (currentEmail) {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: currentEmail },
+          });
+          token.isApproved = dbUser?.status === "APPROVED";
+        }
       }
       return token;
     },
@@ -31,6 +44,8 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.email = token.email;
         session.user.image = token.picture as string;
+        (session.user as any).role = token.role;
+        (session.user as any).isApproved = token.isApproved;
       }
       return session;
     },
