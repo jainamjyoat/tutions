@@ -11,7 +11,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
       authorization: {
         params: {
-          prompt: "select_account", // 👈 This overrides 'none' and forces the account selector
+          prompt: "select_account", // Forces Google account selector screen
           access_type: "offline",
           response_type: "code",
         },
@@ -32,8 +32,8 @@ export const authOptions: NextAuthOptions = {
       } else {
         token.role = "STUDENT";
         if (currentEmail) {
-          const dbUser = await prisma.user.findUnique({
-            where: { email: currentEmail },
+          const dbUser = await prisma.user.findFirst({
+            where: { email: { equals: currentEmail, mode: "insensitive" } },
           });
           token.isApproved = dbUser?.status === "APPROVED";
         }
@@ -48,6 +48,23 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).isApproved = token.isApproved;
       }
       return session;
+    },
+  },
+  // 💡 GUARANTEE: Fires immediately when a deleted student signs back in, marking them PENDING in Supabase
+  events: {
+    async createUser({ user }) {
+      const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
+      const userEmail = user.email?.trim().toLowerCase();
+
+      if (userEmail && userEmail !== teacherEmail) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            role: "STUDENT",
+            status: "PENDING",
+          },
+        });
+      }
     },
   },
   pages: {

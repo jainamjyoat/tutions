@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { StudentStatus, Role } from "@prisma/client";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -9,38 +10,39 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userEmail = session.user.email?.toLowerCase();
-  const isTeacher = userEmail === process.env.TEACHER_EMAIL?.toLowerCase();
+  const userEmail = session.user.email?.trim().toLowerCase();
+  const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
+  const isTeacher = userEmail === teacherEmail;
 
-  if (isTeacher) {
+  // 1. TEACHER VIEW: Fetch ALL non-teacher accounts
+  if (isTeacher && teacherEmail) {
     const students = await prisma.user.findMany({
-      where: { role: "STUDENT" },
+      where: {
+        NOT: {
+          email: { equals: teacherEmail, mode: "insensitive" },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
-    const formattedStudents = students.map(
-      (s: {
-        id: string;
-        name: string | null;
-        email: string | null;
-        image: string | null;
-        status: string;
-        createdAt: Date;
-      }) => ({
-        id: s.id,
-        name: s.name || "Student",
-        email: s.email,
-        avatar: s.image,
-        status: s.status.toLowerCase(),
-        createdAt: s.createdAt.toISOString(),
-      })
-    );
+    const formattedStudents = students.map((s) => ({
+      id: s.id,
+      name: s.name || "Student",
+      email: s.email,
+      avatar: s.image,
+      // Default to "pending" if status is null or missing
+      status: (s.status || StudentStatus.PENDING).toString().toLowerCase(),
+      createdAt: s.createdAt ? s.createdAt.toISOString() : new Date().toISOString(),
+    }));
 
     return NextResponse.json({ students: formattedStudents });
   }
 
-  let student = await prisma.user.findUnique({
-    where: { email: userEmail },
+  // 2. STUDENT VIEW: Find or recreate student record
+  let student = await prisma.user.findFirst({
+    where: {
+      email: { equals: userEmail, mode: "insensitive" },
+    },
   });
 
   if (!student && userEmail) {
@@ -49,8 +51,8 @@ export async function GET() {
         email: userEmail,
         name: session.user.name,
         image: session.user.image,
-        role: "STUDENT",
-        status: "PENDING",
+        role: Role.STUDENT,
+        status: StudentStatus.PENDING,
       },
     });
   }
@@ -59,7 +61,7 @@ export async function GET() {
     student: student
       ? {
           ...student,
-          status: student.status.toLowerCase(),
+          status: (student.status || StudentStatus.PENDING).toString().toLowerCase(),
         }
       : null,
   });
@@ -67,8 +69,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  const isTeacher =
-    session?.user?.email?.toLowerCase() === process.env.TEACHER_EMAIL?.toLowerCase();
+  const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
+  const isTeacher = session?.user?.email?.trim().toLowerCase() === teacherEmail;
 
   if (!isTeacher) {
     return NextResponse.json(
@@ -80,56 +82,58 @@ export async function POST(req: Request) {
   const { studentEmail, action } = await req.json();
 
   if (!studentEmail) {
-    return NextResponse.json({ error: "Student email is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Student email is required" },
+      { status: 400 }
+    );
   }
 
   const normalizedEmail = studentEmail.trim().toLowerCase();
 
   if (action === "approve") {
-    // Approve student access
     await prisma.user.updateMany({
-      where: { email: normalizedEmail },
-      data: { status: "APPROVED", role: "STUDENT" },
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      data: { status: StudentStatus.APPROVED, role: Role.STUDENT },
     });
-  } else if (action === "decline" || action === "revoke" || action === "delete") {
-    // 1. Delete linked NextAuth sessions and accounts first to avoid Foreign Key constraint errors
+  } else if (action === "decline") {
+    await prisma.user.updateMany({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      data: { status: StudentStatus.DECLINED },
+    });
+  } else if (action === "revoke" || action === "delete") {
+    // Delete linked NextAuth sessions & accounts to purge active login states
     await prisma.session.deleteMany({
-      where: { user: { email: normalizedEmail } },
+      where: { user: { email: { equals: normalizedEmail, mode: "insensitive" } } },
     });
 
     await prisma.account.deleteMany({
-      where: { user: { email: normalizedEmail } },
+      where: { user: { email: { equals: normalizedEmail, mode: "insensitive" } } },
     });
 
-    // 2. Permanently delete the student User record from the database
+    // Permanently wipe the student record from Supabase
     await prisma.user.deleteMany({
-      where: { email: normalizedEmail },
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
     });
   }
 
-  // Fetch updated student list to return fresh data to the frontend
+  // Return fresh list of all non-teacher students
   const updatedStudents = await prisma.user.findMany({
-    where: { role: "STUDENT" },
+    where: {
+      NOT: {
+        email: { equals: teacherEmail, mode: "insensitive" },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  const formattedStudents = updatedStudents.map(
-    (s: {
-      id: string;
-      name: string | null;
-      email: string | null;
-      image: string | null;
-      status: string;
-      createdAt: Date;
-    }) => ({
-      id: s.id,
-      name: s.name || "Student",
-      email: s.email,
-      avatar: s.image,
-      status: s.status.toLowerCase(),
-      createdAt: s.createdAt.toISOString(),
-    })
-  );
+  const formattedStudents = updatedStudents.map((s) => ({
+    id: s.id,
+    name: s.name || "Student",
+    email: s.email,
+    avatar: s.image,
+    status: (s.status || StudentStatus.PENDING).toString().toLowerCase(),
+    createdAt: s.createdAt ? s.createdAt.toISOString() : new Date().toISOString(),
+  }));
 
   return NextResponse.json({ success: true, students: formattedStudents });
 }
