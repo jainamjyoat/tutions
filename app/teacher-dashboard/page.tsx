@@ -10,7 +10,7 @@ type Student = {
   avatar: string;
   subject: string;
   time: string;
-  status: "active" | "pending";
+  status: "approved" | "pending" | "declined" | "active";
   progress: number;
   email: string;
 };
@@ -93,7 +93,7 @@ export default function TeacherDashboard() {
   const [students, setStudents] = useState<Student[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
 
-  // Fetch pending & approved students from API on mount
+  // Fetch pending & registered students with 5-second polling
   useEffect(() => {
     setMounted(true);
 
@@ -120,10 +120,10 @@ export default function TeacherDashboard() {
                 }),
               }));
 
-            // Filter approved students
-            const approvedList: Student[] = data.students
-              .filter((s: { status: string }) => s.status === "approved")
-              .map((s: { id: string; name: string; email: string; avatar?: string }) => ({
+            // Filter non-pending students (Approved + Revoked)
+            const studentList: Student[] = data.students
+              .filter((s: { status: string }) => s.status !== "pending")
+              .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => ({
                 id: s.id,
                 name: s.name,
                 email: s.email,
@@ -132,30 +132,85 @@ export default function TeacherDashboard() {
                   "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
                 subject: "General Learning",
                 time: "Not Scheduled",
-                status: "active",
+                status: s.status as any,
                 progress: 0,
               }));
 
             setInvites(pendingList);
-
-            if (approvedList.length > 0) {
-              setStudents((prev) => {
-                const existingEmails = new Set(prev.map((s) => s.email.toLowerCase()));
-                const newApproved = approvedList.filter(
-                  (a) => !existingEmails.has(a.email.toLowerCase())
-                );
-                return [...prev, ...newApproved];
-              });
-            }
+            setStudents(studentList);
           }
         }
       } catch (err) {
-        console.error("Failed to fetch pending student requests:", err);
+        console.error("Failed to fetch student requests:", err);
       }
     }
 
     fetchStudentRequests();
+    const interval = setInterval(fetchStudentRequests, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  // 🔄 OUTSIDE BUTTON ACTION: Toggle Student Access (Grant <-> Revoke without deleting)
+  const handleToggleAccess = async (student: Student) => {
+    const isApproved = student.status === "approved" || student.status === "active";
+    const action = isApproved ? "revoke" : "grant";
+
+    try {
+      const res = await fetch("/api/student/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail: student.email, action }),
+      });
+
+      if (res.ok) {
+        const newStatus = isApproved ? "declined" : "approved";
+        setStudents((prev) =>
+          prev.map((s) =>
+            s.email.toLowerCase() === student.email.toLowerCase()
+              ? { ...s, status: newStatus }
+              : s
+          )
+        );
+
+        if (selectedStudent?.id === student.id) {
+          setSelectedStudent((prev) => (prev ? { ...prev, status: newStatus } : null));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to toggle student access:", err);
+    }
+  };
+
+  // 🗑️ INSIDE MODAL ACTION: Permanently Delete Student from Database
+  const handleDeleteStudent = async (student: Student) => {
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete ${student.name} from the database? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/student/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail: student.email, action: "delete" }),
+      });
+
+      if (res.ok) {
+        setStudents((prev) =>
+          prev.filter((s) => s.email.toLowerCase() !== student.email.toLowerCase())
+        );
+        setSelectedStudent(null);
+      } else {
+        alert("Failed to delete student from database.");
+      }
+    } catch (err) {
+      console.error("Failed to delete student:", err);
+      alert("Error occurred while deleting student from database.");
+    }
+  };
 
   // Accept/Authorize Pending Student
   const handleAcceptInvite = async (invite: Invite) => {
@@ -173,7 +228,7 @@ export default function TeacherDashboard() {
           avatar: invite.avatar,
           subject: "General Learning",
           time: "Not Scheduled",
-          status: "active",
+          status: "approved",
           progress: 0,
           email: invite.email,
         };
@@ -199,38 +254,6 @@ export default function TeacherDashboard() {
       }
     } catch (err) {
       console.error("Failed to decline student:", err);
-    }
-  };
-
-  // 🔴 NEW: Revoke/Unauthorize & Delete Authorized Student from Database
-  const handleRevokeStudent = async (student: Student) => {
-    if (
-      !confirm(
-        `Are you sure you want to revoke authorization for ${student.name}? This will delete their account record from the database.`
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/student/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentEmail: student.email, action: "revoke" }),
-      });
-
-      if (res.ok) {
-        // Remove from local frontend state
-        setStudents((prev) => prev.filter((s) => s.id !== student.id));
-        if (selectedStudent?.id === student.id) {
-          setSelectedStudent(null);
-        }
-      } else {
-        alert("Failed to revoke student access from database.");
-      }
-    } catch (err) {
-      console.error("Failed to revoke student:", err);
-      alert("Error occurred while deleting student from database.");
     }
   };
 
@@ -560,9 +583,7 @@ export default function TeacherDashboard() {
             />
           </div>
 
-          {/* Functional Notification & Settings Header Actions */}
           <div className="flex items-center gap-1 sm:gap-2 ml-auto">
-            {/* Notification Button */}
             <div className="relative">
               <button
                 onClick={() => {
@@ -578,7 +599,6 @@ export default function TeacherDashboard() {
                 )}
               </button>
 
-              {/* Notifications Popover */}
               {showNotifications && (
                 <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl shadow-xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
                   <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
@@ -626,7 +646,6 @@ export default function TeacherDashboard() {
               )}
             </div>
 
-            {/* Settings Button */}
             <button
               onClick={() => {
                 setShowSettingsModal(true);
@@ -650,7 +669,7 @@ export default function TeacherDashboard() {
                     Welcome back, {session?.user?.name || "Teacher"}! 👋
                   </h2>
                   <p className="font-inter text-xs sm:text-sm md:text-base text-[#414754]">
-                    You have {students.length} authorized students and {meetings.length} meetings scheduled.
+                    You have {students.filter((s) => s.status === "approved" || s.status === "active").length} authorized students and {meetings.length} meetings scheduled.
                   </p>
                 </div>
                 <div className="text-left sm:text-right mt-2 sm:mt-0">
@@ -661,7 +680,6 @@ export default function TeacherDashboard() {
                 </div>
               </section>
 
-              {/* Pending Student Authorization Banner */}
               {invites.length > 0 && (
                 <div className="bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl p-3.5 sm:p-4 shadow-xs">
                   <div className="flex items-center justify-between mb-3">
@@ -879,27 +897,13 @@ export default function TeacherDashboard() {
                             <span className="font-quicksand font-bold text-xs text-[#1b1c1c]">
                               {s.name}
                             </span>
-                            <span
-                              className={`font-inter font-semibold text-xs ${
-                                s.progress >= 70
-                                  ? "text-[#005bbf]"
-                                  : s.progress >= 40
-                                  ? "text-[#795900]"
-                                  : "text-[#ac3509]"
-                              }`}
-                            >
+                            <span className="font-inter font-semibold text-xs text-[#005bbf]">
                               {s.progress}%
                             </span>
                           </div>
                           <div className="h-2.5 w-full bg-[#eae8e7] rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all ${
-                                s.progress >= 70
-                                  ? "bg-[#005bbf]"
-                                  : s.progress >= 40
-                                  ? "bg-[#795900]"
-                                  : "bg-[#fe6f42]"
-                              }`}
+                              className="h-full bg-[#005bbf] rounded-full"
                               style={{ width: `${s.progress}%` }}
                             />
                           </div>
@@ -912,7 +916,7 @@ export default function TeacherDashboard() {
             </>
           )}
 
-          {/* DEDICATED STUDENT REQUESTS / APPROVALS VIEW */}
+          {/* DEDICATED STUDENT REQUESTS VIEW */}
           {activeView === "approvals" && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -994,7 +998,7 @@ export default function TeacherDashboard() {
             <div className="space-y-5 sm:space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                  Authorized Students ({students.length})
+                  Registered Students ({students.length})
                 </h2>
                 {invites.length > 0 && (
                   <button
@@ -1006,65 +1010,89 @@ export default function TeacherDashboard() {
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {students.map((student) => (
-                  <div
-                    key={student.id}
-                    onClick={() => setSelectedStudent(student)}
-                    className="bg-white rounded-[20px] p-4 sm:p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer relative group flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center gap-3.5 mb-3">
-                        <Image
-                          src={student.avatar}
-                          alt={student.name}
-                          width={56}
-                          height={56}
-                          unoptimized
-                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">
-                            {student.name}
-                          </h3>
-                          <p className="text-xs text-[#727785] truncate">{student.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-1 rounded-full font-semibold">
-                          {student.subject}
-                        </span>
-                        <span className="text-[#727785]">{student.time}</span>
-                      </div>
-                      <div className="mt-3">
-                        <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#005bbf] rounded-full"
-                            style={{ width: `${student.progress}%` }}
-                          />
-                        </div>
-                        <p className="text-[11px] text-[#727785] mt-1 text-right">
-                          {student.progress}% complete
-                        </p>
-                      </div>
-                    </div>
 
-                    {/* 🔴 Revoke / Unauthorize Button */}
-                    <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
-                      <span className="text-[13px] font-semibold text-[#005bbf]">Click for details</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation(); // Prevents opening modal
-                          handleRevokeStudent(student);
-                        }}
-                        className="text-xs text-[#ac3509] hover:bg-[#ac3509]/10 px-3 py-1.5 rounded-lg font-quicksand font-bold flex items-center gap-1 transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-base">person_remove</span>
-                        <span>Revoke Access</span>
-                      </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {students.map((student) => {
+                  const isApproved = student.status === "approved" || student.status === "active";
+
+                  return (
+                    <div
+                      key={student.id}
+                      onClick={() => setSelectedStudent(student)}
+                      className="bg-white rounded-[20px] p-4 sm:p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer relative group flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-3.5 mb-3">
+                          <Image
+                            src={student.avatar}
+                            alt={student.name}
+                            width={56}
+                            height={56}
+                            unoptimized
+                            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">
+                              {student.name}
+                            </h3>
+                            <p className="text-xs text-[#727785] truncate">{student.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span
+                            className={`px-2.5 py-1 rounded-full font-semibold capitalize ${
+                              isApproved
+                                ? "bg-[#005bbf]/10 text-[#005bbf]"
+                                : "bg-[#ac3509]/10 text-[#ac3509]"
+                            }`}
+                          >
+                            {isApproved ? "Approved" : "Access Revoked"}
+                          </span>
+                          <span className="text-[#727785]">{student.time}</span>
+                        </div>
+                        <div className="mt-3">
+                          <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-[#005bbf] rounded-full"
+                              style={{ width: `${student.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-[11px] text-[#727785] mt-1 text-right">
+                            {student.progress}% complete
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 🟢 / 🔴 OUTSIDE CARD BUTTON: Dynamic Revoke vs Grant Access Toggle */}
+                      <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
+                        <span className="text-[13px] font-semibold text-[#005bbf]">Click card for details</span>
+                        {isApproved ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleAccess(student);
+                            }}
+                            className="text-xs text-[#ac3509] hover:bg-[#ac3509]/10 border border-[#ac3509]/20 px-3 py-1.5 rounded-xl font-quicksand font-bold flex items-center gap-1 transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-base">person_remove</span>
+                            <span>Revoke Access</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleAccess(student);
+                            }}
+                            className="text-xs text-[#0f9d58] bg-[#0f9d58]/10 hover:bg-[#0f9d58]/20 border border-[#0f9d58]/30 px-3 py-1.5 rounded-xl font-quicksand font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                          >
+                            <span className="material-symbols-outlined text-base">how_to_reg</span>
+                            <span>Grant Access</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1486,6 +1514,7 @@ export default function TeacherDashboard() {
                 <p className="text-xs sm:text-sm text-[#727785] truncate">{selectedStudent.email}</p>
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-2.5 sm:gap-3 text-xs sm:text-sm">
               <div className="bg-[#f5f3f3] rounded-xl p-3">
                 <p className="text-[#727785] text-[10px] sm:text-xs">Subject</p>
@@ -1501,10 +1530,14 @@ export default function TeacherDashboard() {
               </div>
               <div className="bg-[#f5f3f3] rounded-xl p-3">
                 <p className="text-[#727785] text-[10px] sm:text-xs">Status</p>
-                <p className="font-semibold text-[#005bbf] capitalize">{selectedStudent.status}</p>
+                <p className="font-semibold text-[#005bbf] capitalize">
+                  {selectedStudent.status === "approved" || selectedStudent.status === "active"
+                    ? "Approved"
+                    : "Revoked"}
+                </p>
               </div>
             </div>
-            
+
             <div className="flex flex-col gap-2 pt-2">
               <button
                 onClick={() => {
@@ -1516,13 +1549,13 @@ export default function TeacherDashboard() {
                 Schedule Meeting
               </button>
 
-              {/* 🔴 Modal Revoke Button */}
+              {/* 🗑️ INSIDE MODAL BUTTON: Delete from Database */}
               <button
-                onClick={() => handleRevokeStudent(selectedStudent)}
-                className="w-full bg-[#ac3509]/10 text-[#ac3509] hover:bg-[#ac3509]/20 py-3 sm:py-3.5 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
+                onClick={() => handleDeleteStudent(selectedStudent)}
+                className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 border border-[#ac3509]/30 text-[#ac3509] py-3 sm:py-3.5 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
               >
-                <span className="material-symbols-outlined text-base">person_remove</span>
-                <span>Revoke Access & Delete Record</span>
+                <span className="material-symbols-outlined text-base">delete</span>
+                <span>Delete from Database</span>
               </button>
             </div>
           </div>

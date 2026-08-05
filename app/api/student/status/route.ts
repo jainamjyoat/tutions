@@ -90,18 +90,20 @@ export async function POST(req: Request) {
 
   const normalizedEmail = studentEmail.trim().toLowerCase();
 
-  if (action === "approve") {
+  // 💡 Updated actions to support toggling between Grant Access and Revoke Access safely without deleting user records
+  if (action === "approve" || action === "grant") {
     await prisma.user.updateMany({
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
       data: { status: StudentStatus.APPROVED, role: Role.STUDENT },
     });
-  } else if (action === "decline") {
+  } else if (action === "decline" || action === "revoke") {
+    // Updates status to DECLINED instead of deleting the database record entirely
     await prisma.user.updateMany({
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
       data: { status: StudentStatus.DECLINED },
     });
-  } else if (action === "revoke" || action === "delete") {
-    // Delete linked NextAuth sessions & accounts to purge active login states
+  } else if (action === "delete") {
+    // Permanent deletion option if ever needed explicitly
     await prisma.session.deleteMany({
       where: { user: { email: { equals: normalizedEmail, mode: "insensitive" } } },
     });
@@ -110,7 +112,6 @@ export async function POST(req: Request) {
       where: { user: { email: { equals: normalizedEmail, mode: "insensitive" } } },
     });
 
-    // Permanently wipe the student record from Supabase
     await prisma.user.deleteMany({
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
     });
