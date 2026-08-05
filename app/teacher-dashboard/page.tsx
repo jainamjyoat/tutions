@@ -15,11 +15,16 @@ type Student = {
   email: string;
 };
 
-type Group = {
+type Assignment = {
   id: string;
-  name: string;
-  students: string[];
+  title: string;
+  subject: string;
   section: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  completedStudentIds?: string[];
+  dueDate: string;
+  status: "active" | "completed";
 };
 
 type Section = {
@@ -60,27 +65,12 @@ export default function TeacherDashboard() {
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState<
-    "overview" | "approvals" | "students" | "groups" | "sections" | "schedule"
+    "overview" | "approvals" | "students" | "assignments" | "sections" | "schedule"
   >("overview");
 
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    {
-      id: "1",
-      title: "New Student Authorization",
-      desc: "A student has requested access to Happy Toddles.",
-      time: "Just now",
-      read: false,
-    },
-    {
-      id: "2",
-      title: "Milestone Reached",
-      desc: "Leo Bennett completed 'Alphabet Soup'.",
-      time: "2 hours ago",
-      read: false,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   // Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -93,7 +83,41 @@ export default function TeacherDashboard() {
   const [students, setStudents] = useState<Student[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
 
-  // Fetch pending & registered students with 5-second polling
+  // Assignments State
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [showAddAssignment, setShowAddAssignment] = useState(false);
+  const [newAssignment, setNewAssignment] = useState({
+    title: "",
+    subject: "General Learning",
+    section: "No Section",
+    studentId: "",
+    studentName: "",
+    dueDate: "",
+  });
+
+  // Sections State
+  const [sections, setSections] = useState<Section[]>([
+    { id: "1", name: "Section A", groups: 1, students: 2 },
+    { id: "2", name: "Section B", groups: 1, students: 1 },
+  ]);
+
+  // Meetings State
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showAddSection, setShowAddSection] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+
+  const [scheduleForm, setScheduleForm] = useState({
+    studentId: "",
+    topic: "",
+    date: "",
+    time: "",
+    meetLink: "",
+  });
+
+  const [newSection, setNewSection] = useState({ name: "" });
+
+  // 🔄 Fetch pending & registered students with 5-second polling
   useEffect(() => {
     setMounted(true);
 
@@ -103,7 +127,6 @@ export default function TeacherDashboard() {
         if (res.ok) {
           const data = await res.json();
           if (data.students) {
-            // Filter pending student approval requests
             const pendingList: Invite[] = data.students
               .filter((s: { status: string }) => s.status === "pending")
               .map((s: { id: string; name: string; email: string; avatar?: string; createdAt?: string }) => ({
@@ -120,10 +143,23 @@ export default function TeacherDashboard() {
                 }),
               }));
 
-            // Filter non-pending students (Approved + Revoked)
-            const studentList: Student[] = data.students
-              .filter((s: { status: string }) => s.status !== "pending")
-              .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => ({
+          const studentList: Student[] = data.students
+            .filter((s: { status: string }) => s.status !== "pending")
+            .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => {
+              // Calculate dynamic progress based on assignments assigned to this student
+              const studentAssignments = assignments.filter(
+                (a) => !a.studentId || a.studentId === s.id || a.studentName?.toLowerCase() === s.name.toLowerCase()
+              );
+              
+              const completedCount = studentAssignments.filter(
+                (a) => a.completedStudentIds && (a.completedStudentIds.includes(s.id) || a.completedStudentIds.includes(s.email))
+              ).length;
+
+              const calculatedProgress = studentAssignments.length > 0 
+                ? Math.round((completedCount / studentAssignments.length) * 100) 
+                : 0;
+
+              return {
                 id: s.id,
                 name: s.name,
                 email: s.email,
@@ -133,11 +169,12 @@ export default function TeacherDashboard() {
                 subject: "General Learning",
                 time: "Not Scheduled",
                 status: s.status as any,
-                progress: 0,
-              }));
+                progress: calculatedProgress, // Replaced static 0 with real-time percentage
+              };
+            });
 
-            setInvites(pendingList);
-            setStudents(studentList);
+          setInvites(pendingList);
+          setStudents(studentList);
           }
         }
       } catch (err) {
@@ -147,6 +184,27 @@ export default function TeacherDashboard() {
 
     fetchStudentRequests();
     const interval = setInterval(fetchStudentRequests, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 🔄 Fetch assignments from database on load & poll
+  useEffect(() => {
+    async function fetchAssignments() {
+      try {
+        const res = await fetch("/api/assignments");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.assignments) {
+            setAssignments(data.assignments);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch assignments from DB:", err);
+      }
+    }
+
+    fetchAssignments();
+    const interval = setInterval(fetchAssignments, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -212,6 +270,79 @@ export default function TeacherDashboard() {
     }
   };
 
+  // Create New Assignment in Database
+  const handleAddAssignment = async () => {
+    if (!newAssignment.title) return; // Only title is required now
+
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newAssignment,
+          section: newAssignment.section || "No Section",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAssignments((prev) => [data.assignment, ...prev]);
+        setNewAssignment({
+          title: "",
+          subject: "General Learning",
+          section: "No Section",
+          studentId: "",
+          studentName: "",
+          dueDate: "",
+        });
+        setShowAddAssignment(false);
+      }
+    } catch (err) {
+      console.error("Failed to save assignment to database:", err);
+    }
+  };
+
+  // Toggle Assignment Completion Status in Database
+  const handleToggleAssignmentStatus = async (id: string) => {
+    const current = assignments.find((a) => a.id === id);
+    if (!current) return;
+
+    const nextStatus = current.status === "active" ? "completed" : "active";
+
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: nextStatus }),
+      });
+
+      if (res.ok) {
+        setAssignments((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update assignment status:", err);
+    }
+  };
+
+  // Delete Assignment from Database
+  const handleDeleteAssignment = async (id: string) => {
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setAssignments((prev) => prev.filter((a) => a.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete assignment from database:", err);
+    }
+  };
+
   // Accept/Authorize Pending Student
   const handleAcceptInvite = async (invite: Invite) => {
     try {
@@ -257,7 +388,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Session Teacher Avatar Details
   const userImage = session?.user?.image;
   const userName = session?.user?.name || session?.user?.email || "Teacher";
   const userInitial = userName.charAt(0).toUpperCase();
@@ -273,34 +403,6 @@ export default function TeacherDashboard() {
   const markAllNotificationsAsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
-
-  const [groups, setGroups] = useState<Group[]>([
-    { id: "1", name: "Advanced Reading", students: ["1"], section: "Section A" },
-    { id: "2", name: "Math Basics", students: ["2"], section: "Section B" },
-  ]);
-
-  const [sections, setSections] = useState<Section[]>([
-    { id: "1", name: "Section A", groups: 1, students: 2 },
-    { id: "2", name: "Section B", groups: 1, students: 1 },
-  ]);
-
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showAddGroup, setShowAddGroup] = useState(false);
-  const [showAddSection, setShowAddSection] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-
-  const [scheduleForm, setScheduleForm] = useState({
-    studentId: "",
-    topic: "",
-    date: "",
-    time: "",
-    meetLink: "",
-  });
-
-  const [newGroup, setNewGroup] = useState({ name: "", section: "" });
-  const [newSection, setNewSection] = useState({ name: "" });
 
   const openScheduleForStudent = (studentId: string) => {
     setScheduleForm((prev) => ({ ...prev, studentId, meetLink: defaultMeetLink }));
@@ -329,21 +431,6 @@ export default function TeacherDashboard() {
     setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
   };
 
-  const handleAddGroup = () => {
-    if (!newGroup.name || !newGroup.section) return;
-    setGroups((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(36).slice(2, 11),
-        name: newGroup.name,
-        students: [],
-        section: newGroup.section,
-      },
-    ]);
-    setNewGroup({ name: "", section: "" });
-    setShowAddGroup(false);
-  };
-
   const handleAddSection = () => {
     if (!newSection.name) return;
     setSections((prev) => [
@@ -368,7 +455,7 @@ export default function TeacherDashboard() {
       badge: invites.length,
     },
     { id: "students" as const, icon: "groups", label: "Students" },
-    { id: "groups" as const, icon: "group_work", label: "Groups" },
+    { id: "assignments" as const, icon: "assignment", label: "Assignments" },
     { id: "sections" as const, icon: "school", label: "Sections" },
     { id: "schedule" as const, icon: "calendar_today", label: "Schedule" },
   ];
@@ -835,45 +922,48 @@ export default function TeacherDashboard() {
                       </ul>
                     </div>
 
+                    {/* 📝 Overview Assignments Widget */}
                     <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
                           <span className="material-symbols-outlined text-[#005bbf]">
-                            group_work
+                            assignment
                           </span>
-                          Groups
+                          Active Assignments
                         </h4>
                         <button
-                          onClick={() => setShowAddGroup(true)}
+                          onClick={() => setShowAddAssignment(true)}
                           className="text-[#005bbf] hover:bg-[#005bbf]/5 p-1 rounded-full"
-                          aria-label="Create new group"
+                          aria-label="Create new assignment"
                         >
                           <span className="material-symbols-outlined text-lg">add_circle</span>
                         </button>
                       </div>
                       <div className="space-y-2">
-                        {groups.map((group) => (
-                          <div
-                            key={group.id}
-                            className="flex items-center justify-between p-2.5 bg-[#f5f3f3] rounded-xl"
-                          >
-                            <div>
-                              <p className="font-inter font-semibold text-xs text-[#1b1c1c]">
-                                {group.name}
-                              </p>
-                              <p className="text-[11px] text-[#727785]">
-                                {group.section} • {group.students.length} Students
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => setGroups((prev) => prev.filter((g) => g.id !== group.id))}
-                              className="text-[#727785] hover:text-[#ac3509] p-1"
-                              aria-label="Delete group"
-                            >
-                              <span className="material-symbols-outlined text-lg">delete</span>
-                            </button>
-                          </div>
-                        ))}
+                        {assignments.filter((a) => a.status === "active").length === 0 ? (
+                          <p className="text-xs text-[#727785] py-2">No active assignments.</p>
+                        ) : (
+                          assignments
+                            .filter((a) => a.status === "active")
+                            .map((a) => (
+                              <div
+                                key={a.id}
+                                className="flex items-center justify-between p-2.5 bg-[#f5f3f3] rounded-xl"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <p className="font-inter font-semibold text-xs text-[#1b1c1c] truncate">
+                                    {a.title}
+                                  </p>
+                                  <p className="text-[11px] text-[#727785] truncate">
+                                    {a.section} • Due {a.dueDate}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] bg-[#005bbf]/10 text-[#005bbf] px-2 py-0.5 rounded-full font-semibold shrink-0">
+                                  {a.subject}
+                                </span>
+                              </div>
+                            ))
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1097,67 +1187,98 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* GROUPS VIEW */}
-          {activeView === "groups" && (
+          {/* 📝 ASSIGNMENTS VIEW */}
+          {activeView === "assignments" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
                 <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                  Groups ({groups.length})
+                  Assignments & Activities ({assignments.length})
                 </h2>
                 <button
-                  onClick={() => setShowAddGroup(true)}
-                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
+                  onClick={() => setShowAddAssignment(true)}
+                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2 shadow-sm"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
-                  <span>Create Group</span>
+                  <span>Create Assignment</span>
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {groups.map((group) => (
-                  <div key={group.id} className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7]">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
-                          {group.name}
-                        </h3>
-                        <p className="text-xs sm:text-sm text-[#727785]">{group.section}</p>
-                      </div>
-                      <button
-                        onClick={() => setGroups((prev) => prev.filter((g) => g.id !== group.id))}
-                        className="text-[#727785] hover:text-[#ac3509] p-1"
-                        aria-label="Delete group"
-                      >
-                        <span className="material-symbols-outlined">delete</span>
-                      </button>
-                    </div>
-                    <div className="flex -space-x-2 mb-4">
-                      {group.students.map((sid) => {
-                        const s = students.find((x) => x.id === sid);
-                        return s ? (
-                          <Image
-                            key={sid}
-                            src={s.avatar}
-                            alt={s.name}
-                            width={32}
-                            height={32}
-                            unoptimized
-                            className="w-8 h-8 rounded-full border-2 border-white object-cover shrink-0"
-                          />
-                        ) : null;
-                      })}
-                      <div className="w-8 h-8 rounded-full bg-[#f5f3f3] border-2 border-white flex items-center justify-center text-xs text-[#727785] shrink-0">
-                        +{group.students.length}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setShowScheduleModal(true)}
-                      className="w-full py-2.5 border border-[#005bbf]/20 text-[#005bbf] rounded-xl font-quicksand font-bold text-xs hover:bg-[#005bbf]/5"
+
+              {assignments.length === 0 ? (
+                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
+                  <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
+                    assignment
+                  </span>
+                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                    No Assignments Posted Yet
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                    Click "Create Assignment" to publish tasks for your sections or specific students.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {assignments.map((assignment) => (
+                    <div
+                      key={assignment.id}
+                      className="bg-white rounded-[20px] p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
                     >
-                      Schedule Meet
-                    </button>
-                  </div>
-                ))}
-              </div>
+                      <div>
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                            {assignment.subject}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              assignment.status === "completed"
+                                ? "bg-[#0f9d58]/10 text-[#0f9d58]"
+                                : "bg-[#795900]/10 text-[#795900]"
+                            }`}
+                          >
+                            {assignment.status === "completed" ? "Completed" : "Active"}
+                          </span>
+                        </div>
+                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                          {assignment.title}
+                        </h3>
+                        <p className="text-xs text-[#727785] mt-1 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-sm">school</span>
+                          <span>{assignment.section}</span>
+                        </p>
+                        {assignment.studentName && (
+                          <p className="text-xs font-semibold text-[#005bbf] mt-0.5 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">person</span>
+                            <span>Assigned to: {assignment.studentName}</span>
+                          </p>
+                        )}
+                        <p className="text-xs text-[#727785] mt-0.5 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-sm">event</span>
+                          <span>Due: {assignment.dueDate}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2 pt-3 border-t border-[#eae8e7]">
+                        <button
+                          onClick={() => handleToggleAssignmentStatus(assignment.id)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-quicksand font-bold transition-all ${
+                            assignment.status === "completed"
+                              ? "bg-[#f5f3f3] text-[#414754] hover:bg-[#eae8e7]"
+                              : "bg-[#005bbf] text-white hover:bg-[#004493]"
+                          }`}
+                        >
+                          {assignment.status === "completed" ? "Mark Active" : "Mark Complete"}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAssignment(assignment.id)}
+                          className="p-2 text-[#ac3509] hover:bg-[#ac3509]/10 rounded-xl transition-colors"
+                          aria-label="Delete assignment"
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1191,10 +1312,6 @@ export default function TeacherDashboard() {
                       </h3>
                     </div>
                     <div className="space-y-2 text-xs sm:text-sm text-[#414754]">
-                      <p className="flex justify-between">
-                        <span>Groups</span>
-                        <span className="font-semibold">{section.groups}</span>
-                      </p>
                       <p className="flex justify-between">
                         <span>Students</span>
                         <span className="font-semibold">{section.students}</span>
@@ -1434,39 +1551,92 @@ export default function TeacherDashboard() {
         </div>
       ))}
 
-      {/* Add Group Modal */}
-      {renderModal(showAddGroup, () => setShowAddGroup(false), "Create New Group", (
+      {/* 📝 Add Assignment Modal with "No Section" and "Specific Student" options */}
+      {renderModal(showAddAssignment, () => setShowAddAssignment(false), "Create New Assignment", (
         <div className="space-y-4 sm:space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Group Name</label>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Title</label>
             <input
               type="text"
-              placeholder="e.g. Advanced Math"
+              placeholder="e.g. Alphabet Soup Worksheet"
               className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
-              value={newGroup.name}
-              onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
+              value={newAssignment.title}
+              onChange={(e) => setNewAssignment({ ...newAssignment, title: e.target.value })}
             />
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Subject</label>
+              <input
+                type="text"
+                placeholder="e.g. Reading, Math"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                value={newAssignment.subject}
+                onChange={(e) => setNewAssignment({ ...newAssignment, subject: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Section</label>
+              <select
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+                value={newAssignment.section}
+                onChange={(e) => setNewAssignment({ ...newAssignment, section: e.target.value })}
+              >
+                <option value="No Section">No Section (General)</option>
+                {sections.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Target Specific Student Dropdown */}
           <div>
-            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Section</label>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">
+              Assign To Specific Student (Optional)
+            </label>
             <select
               className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
-              value={newGroup.section}
-              onChange={(e) => setNewGroup({ ...newGroup, section: e.target.value })}
+              value={newAssignment.studentId}
+              onChange={(e) => {
+                const selectedStudent = students.find((s) => s.id === e.target.value);
+                setNewAssignment({
+                  ...newAssignment,
+                  studentId: e.target.value,
+                  studentName: selectedStudent ? selectedStudent.name : "",
+                });
+              }}
             >
-              <option value="">Select section</option>
-              {sections.map((s) => (
-                <option key={s.id} value={s.name}>
-                  {s.name}
-                </option>
-              ))}
+              <option value="">All Students (No Specific Student)</option>
+              {students
+                .filter((s) => s.status === "approved" || s.status === "active")
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.email})
+                  </option>
+                ))}
             </select>
           </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Due Date</label>
+            <input
+              type="text"
+              placeholder="e.g. Tomorrow, Aug 12"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              value={newAssignment.dueDate}
+              onChange={(e) => setNewAssignment({ ...newAssignment, dueDate: e.target.value })}
+            />
+          </div>
+
           <button
-            onClick={handleAddGroup}
+            onClick={handleAddAssignment}
             className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
           >
-            Create Group
+            Publish Assignment
           </button>
         </div>
       ))}

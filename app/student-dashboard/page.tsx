@@ -4,6 +4,17 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 
+type Assignment = {
+  id: string;
+  title: string;
+  subject: string;
+  section: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  dueDate: string;
+  status: "active" | "completed";
+};
+
 type Task = {
   id: string;
   title: string;
@@ -53,8 +64,11 @@ export default function StudentDashboard() {
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
-    "learning" | "activities" | "tutors" | "achievements" | "resources"
+    "learning" | "assignments" | "tutors" | "achievements" | "resources"
   >("learning");
+
+  // Real Database Assignments State
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
 
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -120,6 +134,64 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
+  // 🔄 Fetch Assignments from Database & Filter specifically for this student
+  useEffect(() => {
+    async function fetchAssignments() {
+      try {
+        const res = await fetch("/api/assignments");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.assignments) {
+            const currentStudentId = (session?.user as any)?.id;
+            const currentStudentName = session?.user?.name;
+
+            // Strict Filtering: Show only general assignments OR assignments targeted to this specific student
+            const myAssignments = data.assignments.filter((a: Assignment) => {
+              if (!a.studentId && !a.studentName) {
+                return true; // General assignment for all students
+              }
+              
+              const matchesId = a.studentId && a.studentId === currentStudentId;
+              const matchesName = a.studentName && currentStudentName && a.studentName.toLowerCase() === currentStudentName.toLowerCase();
+
+              return matchesId || matchesName;
+            });
+
+            setAssignments(myAssignments);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch assignments for student:", err);
+      }
+    }
+
+    if (status === "authenticated") {
+      fetchAssignments();
+      const interval = setInterval(fetchAssignments, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [status, session]);
+
+  // 🔄 Toggle Assignment Completion in Database
+  const handleToggleAssignment = async (id: string, currentStatus: "active" | "completed") => {
+    const nextStatus = currentStatus === "active" ? "completed" : "active";
+
+    // Optimistic state update
+    setAssignments((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a))
+    );
+
+    try {
+      await fetch("/api/assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: nextStatus }),
+      });
+    } catch (err) {
+      console.error("Failed to update assignment status:", err);
+    }
+  };
+
   // Extract session details
   const userImage = session?.user?.image;
   const rawName = session?.user?.name || session?.user?.email || "Student";
@@ -137,32 +209,6 @@ export default function StudentDashboard() {
   const markAllNotificationsAsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
-
-  const [tasks, setTasks] = useState<Task[]>([
-    {
-      id: "1",
-      title: "Draw a Triangle",
-      subtitle: "Completed yesterday",
-      status: "completed",
-    },
-    {
-      id: "2",
-      title: "Find 3 blue objects",
-      subtitle: "Take a photo of 3 blue things in your house.",
-      status: "in-progress",
-      due: "Due Today",
-      progress: 30,
-      tag: "Due Today",
-      tagColor: "bg-[#ffdbd0]",
-      tagTextColor: "text-[#3a0a00]",
-    },
-    {
-      id: "3",
-      title: "Read 'The Big Red Barn'",
-      subtitle: "Due Oct 15",
-      status: "pending",
-    },
-  ]);
 
   const [classes] = useState<ClassItem[]>([
     {
@@ -207,25 +253,9 @@ export default function StudentDashboard() {
 
   const [dailyProgress, setDailyProgress] = useState(65);
 
-  const toggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        if (t.status === "completed") {
-          return { ...t, status: "pending", subtitle: "Due soon" };
-        }
-        return {
-          ...t,
-          status: "completed",
-          subtitle: "Completed just now",
-        };
-      })
-    );
-  };
-
   const navItems = [
     { id: "learning" as const, icon: "school", label: "My Learning" },
-    { id: "activities" as const, icon: "auto_awesome", label: "Fun Activities" },
+    { id: "assignments" as const, icon: "assignment", label: "Assignments" },
     { id: "tutors" as const, icon: "face", label: "My Tutors" },
     { id: "achievements" as const, icon: "military_tech", label: "Achievements" },
     { id: "resources" as const, icon: "library_books", label: "Resources" },
@@ -555,14 +585,14 @@ export default function StudentDashboard() {
           <div>
             <h1 className="font-quicksand text-2xl sm:text-3xl md:text-4xl font-bold text-[#1b1c1c] mb-1.5">
               {activeNav === "learning" && "My Learning Journey"}
-              {activeNav === "activities" && "Fun Activities & Games"}
+              {activeNav === "assignments" && "My Assignments & Activities"}
               {activeNav === "tutors" && "My Teachers & Tutors"}
               {activeNav === "achievements" && "My Badges & Trophies"}
               {activeNav === "resources" && "Learning Resources"}
             </h1>
             <p className="text-xs sm:text-sm text-[#414754]">
               {activeNav === "learning" && `Here is your plan for the week, ${firstName}!`}
-              {activeNav === "activities" && "Explore interactive puzzles, drawings, and challenges."}
+              {activeNav === "assignments" && "Complete your assigned tasks from your teacher."}
               {activeNav === "tutors" && "Connect with your tutors and ask questions anytime."}
               {activeNav === "achievements" && "Track stars and unlock rewards as you learn."}
               {activeNav === "resources" && "Download worksheets, guides, and storybooks."}
@@ -791,105 +821,169 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Tasks & Homework */}
+            {/* 📝 REAL DATABASE ASSIGNMENTS FROM TEACHER (OVERVIEW WIDGET) */}
             <div className="md:col-span-5 bg-[#f5f3f3] rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c]">
-                  Tasks &amp; Homework
+                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#005bbf]">assignment</span>
+                  Teacher Assignments
                 </h3>
+                <span className="text-xs bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-0.5 rounded-full font-bold">
+                  {assignments.filter((a) => a.status === "active").length} Active
+                </span>
               </div>
-              <div className="flex flex-col gap-3">
-                {tasks.map((task) => (
-                  <button
-                    key={task.id}
-                    onClick={() => toggleTask(task.id)}
-                    className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all w-full ${
-                      task.status === "completed"
-                        ? "bg-white border-[#e4e2e1] opacity-70"
-                        : task.status === "in-progress"
-                        ? "bg-white border-l-4 border-[#ac3509] shadow-sm"
-                        : "bg-white border-[#e4e2e1]"
-                    }`}
-                  >
-                    <div className="mt-0.5 shrink-0">
-                      <span
-                        className={`material-symbols-outlined ${
-                          task.status === "completed"
-                            ? "text-[#005bbf]"
-                            : "text-[#727785]"
+
+              {assignments.length === 0 ? (
+                <div className="bg-white rounded-2xl p-6 text-center border border-[#e4e2e1]">
+                  <span className="material-symbols-outlined text-3xl text-[#727785] mb-1">
+                    task_alt
+                  </span>
+                  <p className="text-xs text-[#727785]">No assignments posted by your teacher yet.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 max-h-[380px] overflow-y-auto pr-1">
+                  {assignments.map((assignment) => {
+                    const isCompleted = assignment.status === "completed";
+
+                    return (
+                      <button
+                        key={assignment.id}
+                        onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
+                        className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all w-full ${
+                          isCompleted
+                            ? "bg-white border-[#e4e2e1] opacity-75"
+                            : "bg-white border-l-4 border-[#005bbf] shadow-xs hover:border-[#004493]"
                         }`}
-                        style={
-                          task.status === "completed"
-                            ? { fontVariationSettings: "'FILL' 1" }
-                            : {}
-                        }
                       >
-                        {task.status === "completed"
-                          ? "check_circle"
-                          : "radio_button_unchecked"}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start mb-1">
-                        <h4
-                          className={`font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] ${
-                            task.status === "completed" ? "line-through" : ""
-                          }`}
-                        >
-                          {task.title}
-                        </h4>
-                        {task.tag && (
+                        <div className="mt-0.5 shrink-0">
                           <span
-                            className={`px-2 py-0.5 ${task.tagColor} ${task.tagTextColor} text-[10px] font-bold rounded-full shrink-0 ml-2`}
+                            className={`material-symbols-outlined ${
+                              isCompleted ? "text-[#0f9d58]" : "text-[#727785]"
+                            }`}
+                            style={isCompleted ? { fontVariationSettings: "'FILL' 1" } : {}}
                           >
-                            {task.tag}
+                            {isCompleted ? "check_circle" : "radio_button_unchecked"}
                           </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-[#414754]">{task.subtitle}</p>
-                      {task.status === "in-progress" && task.progress !== undefined && (
-                        <div className="w-full bg-[#e4e2e1] rounded-full h-1.5 mt-2">
-                          <div
-                            className="bg-[#ac3509] h-1.5 rounded-full transition-all"
-                            style={{ width: `${task.progress}%` }}
-                          />
                         </div>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start mb-1 gap-2">
+                            <h4
+                              className={`font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate ${
+                                isCompleted ? "line-through text-[#727785]" : ""
+                              }`}
+                            >
+                              {assignment.title}
+                            </h4>
+                            <span className="text-[10px] bg-[#005bbf]/10 text-[#005bbf] px-2 py-0.5 rounded-full font-semibold shrink-0">
+                              {assignment.subject}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-[#727785] mt-1">
+                            <span>Section: {assignment.section}</span>
+                            <span className="font-medium text-[#ac3509]">Due: {assignment.dueDate}</span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* NAV VIEW: FUN ACTIVITIES */}
-        {activeNav === "activities" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-3xl p-6 border border-[#e4e2e1] shadow-sm hover:shadow-md transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-[#ffdfa0] flex items-center justify-center text-[#795900] mb-4">
-                <span className="material-symbols-outlined text-2xl">extension</span>
+        {/* 📝 NAV VIEW: DEDICATED ASSIGNMENTS TAB */}
+        {activeNav === "assignments" && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
+                  Your Assigned Tasks ({assignments.length})
+                </h2>
+                <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                  Click any task to toggle its completion status.
+                </p>
               </div>
-              <h3 className="font-quicksand font-bold text-lg text-[#1b1c1c] mb-1">Shape Matching Game</h3>
-              <p className="text-xs text-[#414754] mb-4">Match colorful triangles, circles, and squares!</p>
-              <button className="w-full py-2.5 bg-[#005bbf] text-white font-quicksand font-bold rounded-xl text-xs hover:bg-[#004493]">Play Now</button>
             </div>
-            <div className="bg-white rounded-3xl p-6 border border-[#e4e2e1] shadow-sm hover:shadow-md transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-[#d8e2ff] flex items-center justify-center text-[#005bbf] mb-4">
-                <span className="material-symbols-outlined text-2xl">palette</span>
+
+            {assignments.length === 0 ? (
+              <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
+                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
+                  assignment_turned_in
+                </span>
+                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                  All Caught Up!
+                </h3>
+                <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                  You currently have no assignments assigned to you.
+                </p>
               </div>
-              <h3 className="font-quicksand font-bold text-lg text-[#1b1c1c] mb-1">Digital Canvas</h3>
-              <p className="text-xs text-[#414754] mb-4">Express your creativity with brush colors and stickers.</p>
-              <button className="w-full py-2.5 bg-[#005bbf] text-white font-quicksand font-bold rounded-xl text-xs hover:bg-[#004493]">Start Drawing</button>
-            </div>
-            <div className="bg-white rounded-3xl p-6 border border-[#e4e2e1] shadow-sm hover:shadow-md transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-[#ffdbd0] flex items-center justify-center text-[#ac3509] mb-4">
-                <span className="material-symbols-outlined text-2xl">music_note</span>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {assignments.map((assignment) => {
+                  const isCompleted = assignment.status === "completed";
+
+                  return (
+                    <div
+                      key={assignment.id}
+                      className="bg-white rounded-[20px] p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                            {assignment.subject}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isCompleted
+                                ? "bg-[#0f9d58]/10 text-[#0f9d58]"
+                                : "bg-[#795900]/10 text-[#795900]"
+                            }`}
+                          >
+                            {isCompleted ? "Completed" : "Active"}
+                          </span>
+                        </div>
+                        <h3 className={`font-quicksand font-bold text-base text-[#1b1c1c] ${isCompleted ? "line-through text-[#727785]" : ""}`}>
+                          {assignment.title}
+                        </h3>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-[#727785] flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">school</span>
+                            <span>{assignment.section}</span>
+                          </p>
+                          {assignment.studentName && (
+                            <p className="text-xs font-semibold text-[#005bbf] flex items-center gap-1">
+                              <span className="material-symbols-outlined text-sm">person</span>
+                              <span>Assigned to: {assignment.studentName}</span>
+                            </p>
+                          )}
+                          <p className="text-xs text-[#727785] flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">event</span>
+                            <span>Due: {assignment.dueDate}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-[#eae8e7]">
+                        <button
+                          onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
+                          className={`w-full py-2.5 rounded-xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            isCompleted
+                              ? "bg-[#f5f3f3] text-[#414754] hover:bg-[#eae8e7]"
+                              : "bg-[#005bbf] text-white hover:bg-[#004493]"
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-base">
+                            {isCompleted ? "undo" : "check_circle"}
+                          </span>
+                          <span>{isCompleted ? "Mark Incomplete" : "Mark as Complete"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <h3 className="font-quicksand font-bold text-lg text-[#1b1c1c] mb-1">ABC Rhymes &amp; Songs</h3>
-              <p className="text-xs text-[#414754] mb-4">Sing along to fun alphabet rhymes and tunes.</p>
-              <button className="w-full py-2.5 bg-[#005bbf] text-white font-quicksand font-bold rounded-xl text-xs hover:bg-[#004493]">Listen &amp; Sing</button>
-            </div>
+            )}
           </div>
         )}
 
