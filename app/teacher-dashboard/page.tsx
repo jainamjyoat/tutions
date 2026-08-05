@@ -91,28 +91,28 @@ export default function TeacherDashboard() {
   );
 
   const [students, setStudents] = useState<Student[]>([
-    {
-      id: "1",
-      name: "Leo Bennett",
-      avatar:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuBXPr-oSV6LBFC_X7G2-LlBphRU1IJfGD58PujbLVLG1nk6NOMAJq3KNOhDrF9zFm8Conqd_DD5zpgbdQW8y5eZRTpQ3LBQfPlwohfqNIx4bE6xrtKpAnxfwnVJHVP5Nl0ODlNPrc7PeAm5UqTyeYWmZrfosdhV1l1vIRGLJjTU-YsECNvmj78zDsSZLKO5YZRPQTaAKxNA5LhO4WBnEdenbtcP8thF2Xa6_XfC_d_fgD_nmJsj4iOHGA",
-      subject: "Reading",
-      time: "9:00 AM - 9:45 AM",
-      status: "active",
-      progress: 75,
-      email: "leo.bennett@email.com",
-    },
-    {
-      id: "2",
-      name: "Mia Chang",
-      avatar:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuAKVZqOh002WBku_9ztYfeQF1GxhhpcYsEOLbM5r4XM37FKW5h1rWn2g_oPfOEd9qaPHQEm_qgMGKaZ_7jsK3Mpf3WFXSBPmRbDDwpfxlNOydU-n1Uf_wD8YbWMdZxisSg7TF3nRqmKLohuBx13T8thYwsZlLkMnLOA1OiOfrWHiYSsIYSuLyP9fCeoPeMfSM5mBhIHYgyPOH-f073sVCidzOqgv7qVuZYN-P8natGeorsmLqEe5cYyCQ",
-      subject: "Math Concepts",
-      time: "11:15 AM - 12:00 PM",
-      status: "active",
-      progress: 45,
-      email: "mia.chang@email.com",
-    },
+    // {
+    //   id: "1",
+    //   name: "Leo Bennett",
+    //   avatar:
+    //     "https://lh3.googleusercontent.com/aida-public/AB6AXuBXPr-oSV6LBFC_X7G2-LlBphRU1IJfGD58PujbLVLG1nk6NOMAJq3KNOhDrF9zFm8Conqd_DD5zpgbdQW8y5eZRTpQ3LBQfPlwohfqNIx4bE6xrtKpAnxfwnVJHVP5Nl0ODlNPrc7PeAm5UqTyeYWmZrfosdhV1l1vIRGLJjTU-YsECNvmj78zDsSZLKO5YZRPQTaAKxNA5LhO4WBnEdenbtcP8thF2Xa6_XfC_d_fgD_nmJsj4iOHGA",
+    //   subject: "Reading",
+    //   time: "9:00 AM - 9:45 AM",
+    //   status: "active",
+    //   progress: 75,
+    //   email: "leo.bennett@email.com",
+    // },
+    // {
+    //   id: "2",
+    //   name: "Mia Chang",
+    //   avatar:
+    //     "https://lh3.googleusercontent.com/aida-public/AB6AXuAKVZqOh002WBku_9ztYfeQF1GxhhpcYsEOLbM5r4XM37FKW5h1rWn2g_oPfOEd9qaPHQEm_qgMGKaZ_7jsK3Mpf3WFXSBPmRbDDwpfxlNOydU-n1Uf_wD8YbWMdZxisSg7TF3nRqmKLohuBx13T8thYwsZlLkMnLOA1OiOfrWHiYSsIYSuLyP9fCeoPeMfSM5mBhIHYgyPOH-f073sVCidzOqgv7qVuZYN-P8natGeorsmLqEe5cYyCQ",
+    //   subject: "Math Concepts",
+    //   time: "11:15 AM - 12:00 PM",
+    //   status: "active",
+    //   progress: 45,
+    //   email: "mia.chang@email.com",
+    // },
   ]);
 
   const [invites, setInvites] = useState<Invite[]>([]);

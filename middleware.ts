@@ -4,25 +4,37 @@ import { NextResponse } from "next/server";
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
-    const allowedTeacherEmail = process.env.TEACHER_EMAIL;
+    const path = req.nextUrl.pathname;
 
+    // Check if the authenticated user is a Teacher
     const isTeacher =
-      token?.email &&
-      token.email.toLowerCase() === allowedTeacherEmail?.toLowerCase();
+      token?.role === "TEACHER" || token?.role === "teacher";
 
-    // If attempting to access /teacher-dashboard and is not the authorized teacher
-    if (req.nextUrl.pathname.startsWith("/teacher-dashboard") && !isTeacher) {
-      return NextResponse.redirect(new URL("/login?error=AccessDenied", req.url));
+    // 1. If Teacher tries to open Student Dashboard -> Send to Teacher Dashboard
+    if (path.startsWith("/student-dashboard") && isTeacher) {
+      return NextResponse.redirect(new URL("/teacher-dashboard", req.url));
     }
+
+    // 2. If non-Teacher tries to open Teacher Dashboard -> Send to Student Dashboard
+    if (path.startsWith("/teacher-dashboard") && !isTeacher) {
+      return NextResponse.redirect(new URL("/student-dashboard", req.url));
+    }
+
+    return NextResponse.next();
   },
   {
     callbacks: {
+      // Authorized only if session token exists
       authorized: ({ token }) => !!token,
     },
+    secret: process.env.NEXTAUTH_SECRET,
   }
 );
 
-// Apply middleware strictly to the teacher dashboard route and its sub-routes
+// Protect ONLY dashboard routes (ignores login, api, and static files)
 export const config = {
-  matcher: ["/teacher-dashboard/:path*"],
+  matcher: [
+    "/student-dashboard/:path*",
+    "/teacher-dashboard/:path*",
+  ],
 };
