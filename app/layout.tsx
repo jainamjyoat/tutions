@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Quicksand } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers"; 
+import AutoLogout from "./components/AutoLogout";   
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,8 +39,10 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased min-h-screen flex flex-col bg-background text-on-background">
-        {/*  Wrap children inside Providers */}
+        {/* Wrap children inside Providers */}
         <Providers>
+          {/* Background 10-minute idle tracker */}
+          <AutoLogout />
           {children}
         </Providers>
       </body>
