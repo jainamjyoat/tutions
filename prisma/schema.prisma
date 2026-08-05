@@ -75,7 +75,7 @@ model Assignment {
   section             String
   studentId           String?
   studentName         String?
-  completedStudentIds String[] @default([]) // Array of student IDs or Emails who completed this task
+  completedStudentIds String[] @default([])
   dueDate             String?
   status              String   @default("active")
   createdAt           DateTime @default(now())
