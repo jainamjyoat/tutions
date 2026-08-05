@@ -18,7 +18,6 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    // Added explicit type to 's' parameter to prevent implicit any error
     const formattedStudents = students.map(
       (s: {
         id: string;
@@ -80,18 +79,35 @@ export async function POST(req: Request) {
 
   const { studentEmail, action } = await req.json();
 
+  if (!studentEmail) {
+    return NextResponse.json({ error: "Student email is required" }, { status: 400 });
+  }
+
+  const normalizedEmail = studentEmail.trim().toLowerCase();
+
   if (action === "approve") {
-    await prisma.user.update({
-      where: { email: studentEmail },
-      data: { status: "APPROVED" },
+    // Approve student access
+    await prisma.user.updateMany({
+      where: { email: normalizedEmail },
+      data: { status: "APPROVED", role: "STUDENT" },
     });
-  } else if (action === "decline") {
-    await prisma.user.update({
-      where: { email: studentEmail },
-      data: { status: "DECLINED" },
+  } else if (action === "decline" || action === "revoke" || action === "delete") {
+    // 1. Delete linked NextAuth sessions and accounts first to avoid Foreign Key constraint errors
+    await prisma.session.deleteMany({
+      where: { user: { email: normalizedEmail } },
+    });
+
+    await prisma.account.deleteMany({
+      where: { user: { email: normalizedEmail } },
+    });
+
+    // 2. Permanently delete the student User record from the database
+    await prisma.user.deleteMany({
+      where: { email: normalizedEmail },
     });
   }
 
+  // Fetch updated student list to return fresh data to the frontend
   const updatedStudents = await prisma.user.findMany({
     where: { role: "STUDENT" },
     orderBy: { createdAt: "desc" },

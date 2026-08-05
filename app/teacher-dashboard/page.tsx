@@ -90,34 +90,10 @@ export default function TeacherDashboard() {
     "https://meet.google.com/abc-defg-hij"
   );
 
-  const [students, setStudents] = useState<Student[]>([
-    // {
-    //   id: "1",
-    //   name: "Leo Bennett",
-    //   avatar:
-    //     "https://lh3.googleusercontent.com/aida-public/AB6AXuBXPr-oSV6LBFC_X7G2-LlBphRU1IJfGD58PujbLVLG1nk6NOMAJq3KNOhDrF9zFm8Conqd_DD5zpgbdQW8y5eZRTpQ3LBQfPlwohfqNIx4bE6xrtKpAnxfwnVJHVP5Nl0ODlNPrc7PeAm5UqTyeYWmZrfosdhV1l1vIRGLJjTU-YsECNvmj78zDsSZLKO5YZRPQTaAKxNA5LhO4WBnEdenbtcP8thF2Xa6_XfC_d_fgD_nmJsj4iOHGA",
-    //   subject: "Reading",
-    //   time: "9:00 AM - 9:45 AM",
-    //   status: "active",
-    //   progress: 75,
-    //   email: "leo.bennett@email.com",
-    // },
-    // {
-    //   id: "2",
-    //   name: "Mia Chang",
-    //   avatar:
-    //     "https://lh3.googleusercontent.com/aida-public/AB6AXuAKVZqOh002WBku_9ztYfeQF1GxhhpcYsEOLbM5r4XM37FKW5h1rWn2g_oPfOEd9qaPHQEm_qgMGKaZ_7jsK3Mpf3WFXSBPmRbDDwpfxlNOydU-n1Uf_wD8YbWMdZxisSg7TF3nRqmKLohuBx13T8thYwsZlLkMnLOA1OiOfrWHiYSsIYSuLyP9fCeoPeMfSM5mBhIHYgyPOH-f073sVCidzOqgv7qVuZYN-P8natGeorsmLqEe5cYyCQ",
-    //   subject: "Math Concepts",
-    //   time: "11:15 AM - 12:00 PM",
-    //   status: "active",
-    //   progress: 45,
-    //   email: "mia.chang@email.com",
-    // },
-  ]);
-
+  const [students, setStudents] = useState<Student[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
 
-  // Fetch pending student sign-ups from API on mount
+  // Fetch pending & approved students from API on mount
   useEffect(() => {
     setMounted(true);
 
@@ -223,6 +199,38 @@ export default function TeacherDashboard() {
       }
     } catch (err) {
       console.error("Failed to decline student:", err);
+    }
+  };
+
+  // 🔴 NEW: Revoke/Unauthorize & Delete Authorized Student from Database
+  const handleRevokeStudent = async (student: Student) => {
+    if (
+      !confirm(
+        `Are you sure you want to revoke authorization for ${student.name}? This will delete their account record from the database.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/student/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail: student.email, action: "revoke" }),
+      });
+
+      if (res.ok) {
+        // Remove from local frontend state
+        setStudents((prev) => prev.filter((s) => s.id !== student.id));
+        if (selectedStudent?.id === student.id) {
+          setSelectedStudent(null);
+        }
+      } else {
+        alert("Failed to revoke student access from database.");
+      }
+    } catch (err) {
+      console.error("Failed to revoke student:", err);
+      alert("Error occurred while deleting student from database.");
     }
   };
 
@@ -1003,40 +1011,57 @@ export default function TeacherDashboard() {
                   <div
                     key={student.id}
                     onClick={() => setSelectedStudent(student)}
-                    className="bg-white rounded-[20px] p-4 sm:p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer"
+                    className="bg-white rounded-[20px] p-4 sm:p-5 border border-[#eae8e7] hover:border-[#005bbf]/30 hover:shadow-md transition-all cursor-pointer relative group flex flex-col justify-between"
                   >
-                    <div className="flex items-center gap-3.5 mb-3">
-                      <Image
-                        src={student.avatar}
-                        alt={student.name}
-                        width={56}
-                        height={56}
-                        unoptimized
-                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">
-                          {student.name}
-                        </h3>
-                        <p className="text-xs text-[#727785] truncate">{student.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-1 rounded-full font-semibold">
-                        {student.subject}
-                      </span>
-                      <span className="text-[#727785]">{student.time}</span>
-                    </div>
-                    <div className="mt-3">
-                      <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#005bbf] rounded-full"
-                          style={{ width: `${student.progress}%` }}
+                    <div>
+                      <div className="flex items-center gap-3.5 mb-3">
+                        <Image
+                          src={student.avatar}
+                          alt={student.name}
+                          width={56}
+                          height={56}
+                          unoptimized
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                         />
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">
+                            {student.name}
+                          </h3>
+                          <p className="text-xs text-[#727785] truncate">{student.email}</p>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-[#727785] mt-1 text-right">
-                        {student.progress}% complete
-                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-1 rounded-full font-semibold">
+                          {student.subject}
+                        </span>
+                        <span className="text-[#727785]">{student.time}</span>
+                      </div>
+                      <div className="mt-3">
+                        <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#005bbf] rounded-full"
+                            style={{ width: `${student.progress}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-[#727785] mt-1 text-right">
+                          {student.progress}% complete
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 🔴 Revoke / Unauthorize Button */}
+                    <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
+                      <span className="text-[13px] font-semibold text-[#005bbf]">Click for details</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevents opening modal
+                          handleRevokeStudent(student);
+                        }}
+                        className="text-xs text-[#ac3509] hover:bg-[#ac3509]/10 px-3 py-1.5 rounded-lg font-quicksand font-bold flex items-center gap-1 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-base">person_remove</span>
+                        <span>Revoke Access</span>
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1233,7 +1258,6 @@ export default function TeacherDashboard() {
         () => setShowSettingsModal(false),
         "Dashboard Settings",
         <div className="space-y-5 sm:space-y-6">
-          {/* Account Profile Card */}
           <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
             <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-base sm:text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
               {userImage && !imageError ? (
@@ -1260,7 +1284,6 @@ export default function TeacherDashboard() {
             </div>
           </div>
 
-          {/* Default Google Meet Link Setting */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-[#414754]">Default Google Meet Link</label>
             <input
@@ -1275,7 +1298,6 @@ export default function TeacherDashboard() {
             </p>
           </div>
 
-          {/* Preferences Toggles */}
           <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
             <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
 
@@ -1300,7 +1322,6 @@ export default function TeacherDashboard() {
             </label>
           </div>
 
-          {/* Sign Out Action Button */}
           <div className="pt-3 border-t border-[#eae8e7]">
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
@@ -1483,15 +1504,27 @@ export default function TeacherDashboard() {
                 <p className="font-semibold text-[#005bbf] capitalize">{selectedStudent.status}</p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                openScheduleForStudent(selectedStudent.id);
-                setSelectedStudent(null);
-              }}
-              className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
-            >
-              Schedule Meeting
-            </button>
+            
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => {
+                  openScheduleForStudent(selectedStudent.id);
+                  setSelectedStudent(null);
+                }}
+                className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
+              >
+                Schedule Meeting
+              </button>
+
+              {/* 🔴 Modal Revoke Button */}
+              <button
+                onClick={() => handleRevokeStudent(selectedStudent)}
+                className="w-full bg-[#ac3509]/10 text-[#ac3509] hover:bg-[#ac3509]/20 py-3 sm:py-3.5 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
+              >
+                <span className="material-symbols-outlined text-base">person_remove</span>
+                <span>Revoke Access & Delete Record</span>
+              </button>
+            </div>
           </div>
         )
       )}
