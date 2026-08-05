@@ -69,14 +69,15 @@ model VerificationToken {
 }
 
 model Assignment {
-  id          String   @id @default(cuid())
-  title       String
-  subject     String   @default("General Learning")
-  section     String
-  studentId   String?
-  studentName String?
-  dueDate     String?
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  title               String
+  subject             String   @default("General Learning")
+  section             String
+  studentId           String?
+  studentName         String?
+  completedStudentIds String[] @default([]) // Array of student IDs or Emails who completed this task
+  dueDate             String?
+  status              String   @default("active")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

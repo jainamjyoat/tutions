@@ -117,7 +117,28 @@ export default function TeacherDashboard() {
 
   const [newSection, setNewSection] = useState({ name: "" });
 
-  // 🔄 Fetch pending & registered students with 5-second polling
+  // 🔄 Fetch assignments from database on load & poll
+  useEffect(() => {
+    async function fetchAssignments() {
+      try {
+        const res = await fetch("/api/assignments");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.assignments) {
+            setAssignments(data.assignments);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch assignments from DB:", err);
+      }
+    }
+
+    fetchAssignments();
+    const interval = setInterval(fetchAssignments, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 🔄 Fetch pending & registered students + calculate real-time dynamic progress
   useEffect(() => {
     setMounted(true);
 
@@ -143,38 +164,44 @@ export default function TeacherDashboard() {
                 }),
               }));
 
-          const studentList: Student[] = data.students
-            .filter((s: { status: string }) => s.status !== "pending")
-            .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => {
-              // Calculate dynamic progress based on assignments assigned to this student
-              const studentAssignments = assignments.filter(
-                (a) => !a.studentId || a.studentId === s.id || a.studentName?.toLowerCase() === s.name.toLowerCase()
-              );
-              
-              const completedCount = studentAssignments.filter(
-                (a) => a.completedStudentIds && (a.completedStudentIds.includes(s.id) || a.completedStudentIds.includes(s.email))
-              ).length;
+            const studentList: Student[] = data.students
+              .filter((s: { status: string }) => s.status !== "pending")
+              .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => {
+                // Calculate real dynamic progress percentage
+                const targetAssignments = assignments.filter(
+                  (a) =>
+                    !a.studentId ||
+                    a.studentId === s.id ||
+                    a.studentName?.toLowerCase() === s.name.toLowerCase()
+                );
 
-              const calculatedProgress = studentAssignments.length > 0 
-                ? Math.round((completedCount / studentAssignments.length) * 100) 
-                : 0;
+                const completedCount = targetAssignments.filter(
+                  (a) =>
+                    a.completedStudentIds &&
+                    (a.completedStudentIds.includes(s.id) || a.completedStudentIds.includes(s.email))
+                ).length;
 
-              return {
-                id: s.id,
-                name: s.name,
-                email: s.email,
-                avatar:
-                  s.avatar ||
-                  "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
-                subject: "General Learning",
-                time: "Not Scheduled",
-                status: s.status as any,
-                progress: calculatedProgress, // Replaced static 0 with real-time percentage
-              };
-            });
+                const dynamicProgress =
+                  targetAssignments.length > 0
+                    ? Math.round((completedCount / targetAssignments.length) * 100)
+                    : 0;
 
-          setInvites(pendingList);
-          setStudents(studentList);
+                return {
+                  id: s.id,
+                  name: s.name,
+                  email: s.email,
+                  avatar:
+                    s.avatar ||
+                    "https://lh3.googleusercontent.com/aida-public/AB6AXuCQp9hpI_rAqqxXQCtOSg0Hc_3TiA_bdldTgXInxdPmrafjmw6_NoI9zac3vx4KwNZx-EFfdx9g2VQ4uc7CqiPL6J83XDfF4M56jmFtM6W75p8ahCsHT-Yqyz7gosagkAyL0wU3ZN7n5XYDivqcwwNtqDBxNTI-n5F-w4R-AHmoUs4xLUSdYKHlj5Lh-rHM_J_POD362yLmVOsvZOXQ31AJ04510oNnZTZ0bAGTkw07m-XzrZ1JVrpPmA",
+                  subject: "General Learning",
+                  time: "Not Scheduled",
+                  status: s.status as any,
+                  progress: dynamicProgress,
+                };
+              });
+
+            setInvites(pendingList);
+            setStudents(studentList);
           }
         }
       } catch (err) {
@@ -185,30 +212,9 @@ export default function TeacherDashboard() {
     fetchStudentRequests();
     const interval = setInterval(fetchStudentRequests, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [assignments]);
 
-  // 🔄 Fetch assignments from database on load & poll
-  useEffect(() => {
-    async function fetchAssignments() {
-      try {
-        const res = await fetch("/api/assignments");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.assignments) {
-            setAssignments(data.assignments);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch assignments from DB:", err);
-      }
-    }
-
-    fetchAssignments();
-    const interval = setInterval(fetchAssignments, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // 🔄 OUTSIDE BUTTON ACTION: Toggle Student Access (Grant <-> Revoke without deleting)
+  // 🔄 OUTSIDE BUTTON ACTION: Toggle Student Access
   const handleToggleAccess = async (student: Student) => {
     const isApproved = student.status === "approved" || student.status === "active";
     const action = isApproved ? "revoke" : "grant";
@@ -271,38 +277,49 @@ export default function TeacherDashboard() {
   };
 
   // Create New Assignment in Database
-  const handleAddAssignment = async () => {
-    if (!newAssignment.title) return; // Only title is required now
-
-    try {
-      const res = await fetch("/api/assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newAssignment,
-          section: newAssignment.section || "No Section",
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setAssignments((prev) => [data.assignment, ...prev]);
-        setNewAssignment({
-          title: "",
-          subject: "General Learning",
-          section: "No Section",
-          studentId: "",
-          studentName: "",
-          dueDate: "",
-        });
-        setShowAddAssignment(false);
+    const handleAddAssignment = async () => {
+      if (!newAssignment.title || !newAssignment.title.trim()) {
+        alert("Please enter an assignment title.");
+        return;
       }
-    } catch (err) {
-      console.error("Failed to save assignment to database:", err);
-    }
-  };
 
-  // Toggle Assignment Completion Status in Database
+      try {
+        const res = await fetch("/api/assignments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: newAssignment.title.trim(),
+            subject: newAssignment.subject || "General Learning",
+            section: newAssignment.section || "No Section",
+            studentId: newAssignment.studentId || null,
+            studentName: newAssignment.studentName || null,
+            dueDate: newAssignment.dueDate || "No Due Date",
+          }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.assignment) {
+          setAssignments((prev) => [data.assignment, ...prev]);
+          setNewAssignment({
+            title: "",
+            subject: "General Learning",
+            section: "No Section",
+            studentId: "",
+            studentName: "",
+            dueDate: "",
+          });
+          setShowAddAssignment(false);
+        } else {
+          alert(data.error || "Failed to publish assignment.");
+        }
+      } catch (err) {
+        console.error("Failed to save assignment to database:", err);
+        alert("Network error: Could not save assignment.");
+      }
+    };
+
+  // Toggle Assignment Status
   const handleToggleAssignmentStatus = async (id: string) => {
     const current = assignments.find((a) => a.id === id);
     if (!current) return;
@@ -326,7 +343,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Delete Assignment from Database
+  // Delete Assignment
   const handleDeleteAssignment = async (id: string) => {
     try {
       const res = await fetch("/api/assignments", {
@@ -343,7 +360,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Accept/Authorize Pending Student
+  // Accept Invite
   const handleAcceptInvite = async (invite: Invite) => {
     try {
       const res = await fetch("/api/student/status", {
@@ -371,7 +388,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Decline/Reject Pending Student
+  // Decline Invite
   const handleDeclineInvite = async (invite: Invite) => {
     try {
       const res = await fetch("/api/student/status", {
@@ -900,25 +917,42 @@ export default function TeacherDashboard() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
+                    {/* 🌟 Dynamic Recent Activity Stream */}
                     <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-4 flex items-center gap-2">
                         <span className="material-symbols-outlined text-[#795900]">history</span>
                         Recent Activity
                       </h4>
-                      <ul className="space-y-3">
-                        <li className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#fe6f42]/10 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-[#ac3509] text-base">
-                              star
-                            </span>
-                          </div>
-                          <div>
-                            <p className="text-xs sm:text-sm text-[#1b1c1c]">
-                              <strong>Leo</strong> completed Alphabet Soup
-                            </p>
-                            <span className="text-[11px] text-[#727785]">2 hours ago</span>
-                          </div>
-                        </li>
+                      <ul className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                        {assignments.flatMap((a) =>
+                          (a.completedStudentIds || []).map((studentRef) => {
+                            const student = students.find(
+                              (s) => s.id === studentRef || s.email === studentRef
+                            );
+                            const name = student ? student.name : a.studentName || "A student";
+
+                            return (
+                              <li key={`${a.id}-${studentRef}`} className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full bg-[#fe6f42]/10 flex items-center justify-center shrink-0">
+                                  <span className="material-symbols-outlined text-[#ac3509] text-base">
+                                    star
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-xs sm:text-sm text-[#1b1c1c]">
+                                    <strong>{name}</strong> completed <em>&quot;{a.title}&quot;</em>
+                                  </p>
+                                  <span className="text-[11px] text-[#727785]">Recently completed</span>
+                                </div>
+                              </li>
+                            );
+                          })
+                        )}
+                        {assignments.every((a) => !a.completedStudentIds || a.completedStudentIds.length === 0) && (
+                          <p className="text-xs text-[#727785] text-center py-4">
+                            No recent completion activity yet.
+                          </p>
+                        )}
                       </ul>
                     </div>
 
@@ -969,6 +1003,7 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
+                {/* 📊 Real-Time Dynamic Student Progress Area */}
                 <div className="md:col-span-4 space-y-5 sm:space-y-6">
                   <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                     <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c] mb-5 flex items-center gap-2">
@@ -993,12 +1028,15 @@ export default function TeacherDashboard() {
                           </div>
                           <div className="h-2.5 w-full bg-[#eae8e7] rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-[#005bbf] rounded-full"
+                              className="h-full bg-[#005bbf] rounded-full transition-all duration-500"
                               style={{ width: `${s.progress}%` }}
                             />
                           </div>
                         </div>
                       ))}
+                      {students.length === 0 && (
+                        <p className="text-xs text-[#727785] text-center py-4">No registered students yet.</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1153,7 +1191,7 @@ export default function TeacherDashboard() {
                         </div>
                       </div>
 
-                      {/* 🟢 / 🔴 OUTSIDE CARD BUTTON: Dynamic Revoke vs Grant Access Toggle */}
+                      {/* 🟢 / 🔴 OUTSIDE CARD BUTTON */}
                       <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
                         <span className="text-[13px] font-semibold text-[#005bbf]">Click card for details</span>
                         {isApproved ? (
@@ -1192,7 +1230,7 @@ export default function TeacherDashboard() {
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
                 <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                  Assignments & Activities ({assignments.length})
+                  Assignments &amp; Activities ({assignments.length})
                 </h2>
                 <button
                   onClick={() => setShowAddAssignment(true)}
@@ -1212,7 +1250,7 @@ export default function TeacherDashboard() {
                     No Assignments Posted Yet
                   </h3>
                   <p className="text-xs sm:text-sm text-[#727785] mt-1">
-                    Click "Create Assignment" to publish tasks for your sections or specific students.
+                    Click &quot;Create Assignment&quot; to publish tasks for your sections or specific students.
                   </p>
                 </div>
               ) : (
@@ -1551,7 +1589,7 @@ export default function TeacherDashboard() {
         </div>
       ))}
 
-      {/* 📝 Add Assignment Modal with "No Section" and "Specific Student" options */}
+      {/* 📝 Add Assignment Modal */}
       {renderModal(showAddAssignment, () => setShowAddAssignment(false), "Create New Assignment", (
         <div className="space-y-4 sm:space-y-5">
           <div>
@@ -1719,7 +1757,6 @@ export default function TeacherDashboard() {
                 Schedule Meeting
               </button>
 
-              {/* 🗑️ INSIDE MODAL BUTTON: Delete from Database */}
               <button
                 onClick={() => handleDeleteStudent(selectedStudent)}
                 className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 border border-[#ac3509]/30 text-[#ac3509] py-3 sm:py-3.5 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
