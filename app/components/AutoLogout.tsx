@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const IDLE_TIMEOUT_MS = 8 * 60 * 1000; // 10 minutes
 
 export default function AutoLogout() {
   const { status } = useSession();
