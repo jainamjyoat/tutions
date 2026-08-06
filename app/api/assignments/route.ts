@@ -2,8 +2,68 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
 
-// GET: Fetch all assignments (with auto-delete expiration logic)
+// Initialize Supabase Client with Server-Only Keys
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  "";
+
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+// Robust helper to extract relative bucket path (e.g. "attachments/filename.png")
+function extractFilePath(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string") return null;
+
+  try {
+    const cleanUrl = url.split("?")[0].trim();
+    const bucketMarker = "/assignment-files/";
+
+    if (cleanUrl.includes(bucketMarker)) {
+      const path = cleanUrl.split(bucketMarker)[1];
+      return decodeURIComponent(path);
+    }
+
+    if (cleanUrl.startsWith("attachments/")) {
+      return decodeURIComponent(cleanUrl);
+    }
+  } catch (err) {
+    console.error("Error extracting file path from URL:", url, err);
+  }
+
+  return null;
+}
+
+// Helper to remove files from Supabase Storage bucket
+async function deleteFilesFromStorage(urls: (string | null | undefined)[]) {
+  if (!supabase) return;
+
+  const validPaths = Array.from(
+    new Set(urls.map((u) => extractFilePath(u)).filter(Boolean) as string[])
+  );
+
+  if (validPaths.length === 0) return;
+
+  console.log("Removing files from Supabase Storage 'assignment-files':", validPaths);
+
+  try {
+    const { data, error } = await supabase.storage
+      .from("assignment-files")
+      .remove(validPaths);
+
+    if (error) {
+      console.error("Supabase Storage deletion error:", error);
+    } else {
+      console.log("Successfully removed files from Storage:", data);
+    }
+  } catch (err) {
+    console.error("Failed to execute storage deletion:", err);
+  }
+}
+
+// GET: Fetch all assignments (Auto-deletes expired assignments + storage files)
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -11,51 +71,67 @@ export async function GET() {
   }
 
   try {
-    // -------------------------------------------------------------
-    // ⏱️ AUTO-DELETE EXPIRATION LOGIC
-    // -------------------------------------------------------------
-    
-    // 🧪 FOR TESTING: 3 Minutes
-    // const EXPIRATION_TIME_MS = 3 * 60 * 1000; 
-
-    // 🚀 FOR PRODUCTION: 3 Days after creation
-    const EXPIRATION_TIME_MS = 3 * 24 * 60 * 60 * 1000; 
+    // ⏱️ EXPIRATION TIMER
+    // const EXPIRATION_TIME_MS = 3 * 60 * 1000; // 🧪 TEST: 3 Minutes
+    const EXPIRATION_TIME_MS = 3 * 24 * 60 * 60 * 1000; // 🚀 PRODUCTION: 3 Days
 
     const expirationCutoff = new Date(Date.now() - EXPIRATION_TIME_MS);
 
-    // Delete assignments created earlier than the expiration cutoff time
-    await prisma.assignment.deleteMany({
-      where: {
-        createdAt: {
-          lt: expirationCutoff,
-        },
-      },
-    });
+    // 1. Fetch expired assignments to collect file URLs
+    let expiredAssignments: any[] = [];
+    try {
+      expiredAssignments = await prisma.assignment.findMany({
+        where: { createdAt: { lt: expirationCutoff } },
+        include: { submissions: true },
+      });
+    } catch (e) {
+      expiredAssignments = await prisma.assignment.findMany({
+        where: { createdAt: { lt: expirationCutoff } },
+      });
+    }
 
-    // Fetch remaining active/valid assignments (including student submissions if schema has them)
-    const assignments = await prisma.assignment.findMany({
-      include: {
-        submissions: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    if (expiredAssignments.length > 0) {
+      const fileUrlsToDelete: (string | null | undefined)[] = [];
+
+      for (const assignment of expiredAssignments) {
+        if (assignment.attachmentUrl) fileUrlsToDelete.push(assignment.attachmentUrl);
+        if (Array.isArray(assignment.submissions)) {
+          assignment.submissions.forEach((sub: any) => {
+            if (sub?.attachmentUrl) fileUrlsToDelete.push(sub.attachmentUrl);
+          });
+        }
+      }
+
+      // Delete files from storage
+      await deleteFilesFromStorage(fileUrlsToDelete);
+
+      // Delete database records
+      await prisma.assignment.deleteMany({
+        where: { createdAt: { lt: expirationCutoff } },
+      });
+    }
+
+    // Fetch active assignments
+    let assignments: any[] = [];
+    try {
+      assignments = await prisma.assignment.findMany({
+        include: { submissions: true },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (e) {
+      assignments = await prisma.assignment.findMany({
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     return NextResponse.json({ assignments });
   } catch (error) {
-    // Fallback if submissions relation isn't migrated yet
-    try {
-      const assignments = await prisma.assignment.findMany({
-        orderBy: { createdAt: "desc" },
-      });
-      return NextResponse.json({ assignments });
-    } catch (fallbackError) {
-      console.error("Error fetching or cleaning up assignments:", fallbackError);
-      return NextResponse.json({ error: "Failed to fetch assignments" }, { status: 500 });
-    }
+    console.error("Error in GET assignments:", error);
+    return NextResponse.json({ error: "Failed to fetch assignments" }, { status: 500 });
   }
 }
 
-// POST: Create Assignment (with Description & Teacher Attachment)
+// POST: Create Assignment
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -80,16 +156,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const {
-      title,
-      description,
-      subject,
-      section,
-      studentId,
-      studentName,
-      attachmentUrl,
-      dueDate,
-    } = body;
+    const { title, description, subject, section, studentId, studentName, attachmentUrl, dueDate } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: "Assignment Title is required" }, { status: 400 });
@@ -119,7 +186,7 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH: Toggle Student Completion Status (with optional Student Attachment)
+// PATCH: Toggle Student Completion Status
 export async function PATCH(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -144,7 +211,6 @@ export async function PATCH(req: Request) {
         updatedCompletedIds.push(studentIdentifier);
       }
 
-      // Record student submission if Submission model exists
       try {
         await prisma.submission.create({
           data: {
@@ -155,12 +221,22 @@ export async function PATCH(req: Request) {
           },
         });
       } catch (subErr) {
-        // Safe catch if Submission table isn't generated yet
+        // Safe fallback
       }
     } else {
       updatedCompletedIds = updatedCompletedIds.filter((item) => item !== studentIdentifier);
 
       try {
+        const studentSubmissions = await prisma.submission.findMany({
+          where: {
+            assignmentId: id,
+            studentId: studentIdentifier,
+          },
+        });
+
+        const subFileUrls = studentSubmissions.map((s) => s.attachmentUrl);
+        await deleteFilesFromStorage(subFileUrls);
+
         await prisma.submission.deleteMany({
           where: {
             assignmentId: id,
@@ -168,7 +244,7 @@ export async function PATCH(req: Request) {
           },
         });
       } catch (subErr) {
-        // Safe catch
+        // Safe fallback
       }
     }
 
@@ -187,7 +263,7 @@ export async function PATCH(req: Request) {
   }
 }
 
-// DELETE: Remove Assignment
+// DELETE: Manual Delete Assignment & All Attached Bucket Files
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -196,10 +272,45 @@ export async function DELETE(req: Request) {
 
   try {
     const { id } = await req.json();
-    await prisma.assignment.delete({ where: { id } });
+    if (!id) {
+      return NextResponse.json({ error: "Assignment ID is required" }, { status: 400 });
+    }
+
+    // 1. Fetch assignment and its submissions
+    let assignment: any = null;
+    try {
+      assignment = await prisma.assignment.findUnique({
+        where: { id },
+        include: { submissions: true },
+      });
+    } catch (e) {
+      assignment = await prisma.assignment.findUnique({
+        where: { id },
+      });
+    }
+
+    if (assignment) {
+      const fileUrlsToDelete: (string | null | undefined)[] = [assignment.attachmentUrl];
+
+      if (Array.isArray(assignment.submissions)) {
+        assignment.submissions.forEach((sub: any) => {
+          if (sub?.attachmentUrl) fileUrlsToDelete.push(sub.attachmentUrl);
+        });
+      }
+
+      // 2. Delete files from Supabase Storage
+      await deleteFilesFromStorage(fileUrlsToDelete);
+
+      // 3. Delete database record
+      await prisma.assignment.delete({ where: { id } });
+    }
+
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting assignment:", error);
-    return NextResponse.json({ error: "Failed to delete assignment" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to delete assignment" },
+      { status: 500 }
+    );
   }
 }
