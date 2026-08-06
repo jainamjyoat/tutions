@@ -14,6 +14,8 @@ type Student = {
   status: "approved" | "pending" | "declined" | "active";
   progress: number;
   email: string;
+  sectionId?: string | null;
+  sectionName?: string | null;
 };
 
 type Submission = {
@@ -42,8 +44,8 @@ type Assignment = {
 type Section = {
   id: string;
   name: string;
-  groups: number;
-  students: number;
+  groups?: number;
+  students?: number;
 };
 
 type Invite = {
@@ -112,15 +114,17 @@ export default function TeacherDashboard() {
   });
 
   // Sections State
-  const [sections, setSections] = useState<Section[]>([
-    { id: "1", name: "Section A", groups: 1, students: 2 },
-    { id: "2", name: "Section B", groups: 1, students: 1 },
-  ]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [showAddSection, setShowAddSection] = useState(false);
+  const [newSection, setNewSection] = useState({ name: "" });
+
+  // Assign Student to Section State
+  const [targetSectionForAssign, setTargetSectionForAssign] = useState<Section | null>(null);
+  const [selectedStudentToAssign, setSelectedStudentToAssign] = useState<string>("");
 
   // Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showAddSection, setShowAddSection] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   const [scheduleForm, setScheduleForm] = useState({
@@ -131,7 +135,24 @@ export default function TeacherDashboard() {
     meetLink: "",
   });
 
-  const [newSection, setNewSection] = useState({ name: "" });
+  // 🔄 Fetch sections from database on mount
+  useEffect(() => {
+    async function fetchSections() {
+      try {
+        const res = await fetch("/api/sections");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sections) {
+            setSections(data.sections);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch sections from DB:", err);
+      }
+    }
+
+    fetchSections();
+  }, []);
 
   // 🔄 Fetch assignments from database on load & poll
   useEffect(() => {
@@ -166,7 +187,7 @@ export default function TeacherDashboard() {
           if (data.students) {
             const pendingList: Invite[] = data.students
               .filter((s: { status: string }) => s.status === "pending")
-              .map((s: { id: string; name: string; email: string; avatar?: string; createdAt?: string }) => ({
+              .map((s: any) => ({
                 id: s.id,
                 name: s.name,
                 email: s.email,
@@ -182,7 +203,7 @@ export default function TeacherDashboard() {
 
             const studentList: Student[] = data.students
               .filter((s: { status: string }) => s.status !== "pending")
-              .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => {
+              .map((s: any) => {
                 const targetAssignments = assignments.filter(
                   (a) =>
                     !a.studentId ||
@@ -212,6 +233,8 @@ export default function TeacherDashboard() {
                   time: "Not Scheduled",
                   status: s.status as any,
                   progress: dynamicProgress,
+                  sectionId: s.sectionId || s.section?.id || null,
+                  sectionName: s.section?.name || null,
                 };
               });
 
@@ -228,6 +251,51 @@ export default function TeacherDashboard() {
     const interval = setInterval(fetchStudentRequests, 5000);
     return () => clearInterval(interval);
   }, [assignments]);
+
+  // 🔄 Assign / Unassign Student to Section
+  const handleAssignStudentToSection = async (studentEmail: string, sectionId: string | null) => {
+    try {
+      const res = await fetch("/api/sections/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentEmail, sectionId }),
+      });
+
+      if (res.ok) {
+        const assignedSection = sections.find((s) => s.id === sectionId);
+        setStudents((prev) =>
+          prev.map((s) =>
+            s.email.toLowerCase() === studentEmail.toLowerCase()
+              ? {
+                  ...s,
+                  sectionId: sectionId,
+                  sectionName: assignedSection ? assignedSection.name : null,
+                }
+              : s
+          )
+        );
+
+        if (selectedStudent?.email.toLowerCase() === studentEmail.toLowerCase()) {
+          setSelectedStudent((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  sectionId: sectionId,
+                  sectionName: assignedSection ? assignedSection.name : null,
+                }
+              : null
+          );
+        }
+
+        setTargetSectionForAssign(null);
+        setSelectedStudentToAssign("");
+      } else {
+        alert("Failed to assign student to section.");
+      }
+    } catch (err) {
+      console.error("Failed to assign student to section:", err);
+    }
+  };
 
   // 🔄 Toggle Student Access
   const handleToggleAccess = async (student: Student) => {
@@ -480,19 +548,49 @@ export default function TeacherDashboard() {
     setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
   };
 
-  const handleAddSection = () => {
-    if (!newSection.name) return;
-    setSections((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(36).slice(2, 11),
-        name: newSection.name,
-        groups: 0,
-        students: 0,
-      },
-    ]);
-    setNewSection({ name: "" });
-    setShowAddSection(false);
+  // ➕ Create Section in Database
+  const handleAddSection = async () => {
+    if (!newSection.name || !newSection.name.trim()) return;
+
+    try {
+      const res = await fetch("/api/sections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newSection.name.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.section) {
+        setSections((prev) => [...prev, data.section]);
+        setNewSection({ name: "" });
+        setShowAddSection(false);
+      } else {
+        alert(data.error || "Failed to create section.");
+      }
+    } catch (err) {
+      console.error("Failed to create section:", err);
+      alert("Network error: Could not create section.");
+    }
+  };
+
+  // 🗑️ Delete Section from Database
+  const handleDeleteSection = async (id: string) => {
+    try {
+      const res = await fetch("/api/sections", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setSections((prev) => prev.filter((s) => s.id !== id));
+      } else {
+        alert("Failed to delete section.");
+      }
+    } catch (err) {
+      console.error("Failed to delete section:", err);
+    }
   };
 
   const navItems = [
@@ -1396,7 +1494,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* SECTIONS VIEW */}
+          {/* 🏫 SECTIONS VIEW WITH ADD STUDENT OPTION */}
           {activeView === "sections" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -1405,41 +1503,112 @@ export default function TeacherDashboard() {
                 </h2>
                 <button
                   onClick={() => setShowAddSection(true)}
-                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
+                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2 shadow-sm"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
                   <span>Add Section</span>
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {sections.map((section) => (
-                  <div
-                    key={section.id}
-                    className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all"
-                  >
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-[#005bbf]">school</span>
+
+              {sections.length === 0 ? (
+                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
+                  <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">school</span>
+                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Sections Created Yet</h3>
+                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                    Click &quot;Add Section&quot; to organize your classes and assign students.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {sections.map((section) => {
+                    const assignedStudents = students.filter(
+                      (s) => s.sectionId === section.id || s.sectionName === section.name
+                    );
+
+                    return (
+                      <div
+                        key={section.id}
+                        className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all flex flex-col justify-between space-y-4"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#eae8e7]">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
+                                <span className="material-symbols-outlined text-[#005bbf]">school</span>
+                              </div>
+                              <div>
+                                <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
+                                  {section.name}
+                                </h3>
+                                <p className="text-xs text-[#727785]">
+                                  {assignedStudents.length} {assignedStudents.length === 1 ? "Student" : "Students"}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteSection(section.id)}
+                              className="text-[#ac3509] hover:bg-[#ac3509]/10 p-1.5 rounded-lg transition-colors"
+                              title="Delete Section"
+                            >
+                              <span className="material-symbols-outlined text-lg">delete</span>
+                            </button>
+                          </div>
+
+                          {/* List of assigned students */}
+                          <div className="space-y-2 mt-3">
+                            <p className="text-[11px] font-bold text-[#727785] uppercase tracking-wider">
+                              Assigned Students
+                            </p>
+                            {assignedStudents.length === 0 ? (
+                              <p className="text-xs text-[#727785] italic py-1">No students in this section yet.</p>
+                            ) : (
+                              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                                {assignedStudents.map((st) => (
+                                  <div
+                                    key={st.id}
+                                    className="flex items-center justify-between bg-[#f5f3f3] p-2 rounded-xl text-xs"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Image
+                                        src={st.avatar}
+                                        alt={st.name}
+                                        width={24}
+                                        height={24}
+                                        unoptimized
+                                        className="w-6 h-6 rounded-full object-cover shrink-0"
+                                      />
+                                      <span className="font-semibold text-[#1b1c1c] truncate">{st.name}</span>
+                                    </div>
+                                    <button
+                                      onClick={() => handleAssignStudentToSection(st.email, null)}
+                                      className="text-[10px] text-[#ac3509] hover:underline font-bold shrink-0 ml-1"
+                                      title="Remove from section"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ➕ Button to Add Student to this Section */}
+                        <button
+                          onClick={() => {
+                            setTargetSectionForAssign(section);
+                            setSelectedStudentToAssign("");
+                          }}
+                          className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2.5 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-base">person_add</span>
+                          <span>Add Student to Section</span>
+                        </button>
                       </div>
-                      <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
-                        {section.name}
-                      </h3>
-                    </div>
-                    <div className="space-y-2 text-xs sm:text-sm text-[#414754]">
-                      <p className="flex justify-between">
-                        <span>Students</span>
-                        <span className="font-semibold">{section.students}</span>
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setSections((prev) => prev.filter((s) => s.id !== section.id))}
-                      className="mt-4 w-full py-2.5 text-xs text-[#ac3509] border border-[#ac3509]/20 rounded-xl hover:bg-[#ac3509]/5 font-quicksand font-bold"
-                    >
-                      Remove Section
-                    </button>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -1798,6 +1967,50 @@ export default function TeacherDashboard() {
           </button>
         </div>
       ))}
+
+      {/* Modal: Add Student to Section */}
+      {renderModal(
+        !!targetSectionForAssign,
+        () => setTargetSectionForAssign(null),
+        `Add Student to ${targetSectionForAssign?.name || "Section"}`,
+        <div className="space-y-4 sm:space-y-5">
+          <div>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">
+              Select Approved Student
+            </label>
+            <select
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] bg-white"
+              value={selectedStudentToAssign}
+              onChange={(e) => setSelectedStudentToAssign(e.target.value)}
+            >
+              <option value="">Select a student...</option>
+              {students
+                .filter((s) => s.status === "approved" || s.status === "active")
+                .map((s) => (
+                  <option key={s.id} value={s.email}>
+                    {s.name} ({s.email}) {s.sectionName ? `[Currently: ${s.sectionName}]` : "[No Section]"}
+                  </option>
+                ))}
+            </select>
+            <p className="text-[11px] text-[#727785] mt-1.5">
+              Only authorized students appear in this dropdown list.
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              if (!selectedStudentToAssign || !targetSectionForAssign) {
+                alert("Please select a student.");
+                return;
+              }
+              handleAssignStudentToSection(selectedStudentToAssign, targetSectionForAssign.id);
+            }}
+            className="w-full bg-[#005bbf] text-white py-3 rounded-xl font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] active:scale-95 transition-transform"
+          >
+            Assign to {targetSectionForAssign?.name}
+          </button>
+        </div>
+      )}
 
       {/* Student Detail Modal */}
       {renderModal(

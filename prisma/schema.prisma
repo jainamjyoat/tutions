@@ -20,17 +20,24 @@ enum StudentStatus {
 }
 
 model User {
-  id            String        @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String?
-  email         String?       @unique
+  email         String?   @unique
   emailVerified DateTime?
   image         String?
-  role          Role          @default(STUDENT)
-  status        StudentStatus @default(PENDING)
-  accounts      Account[]
-  sessions      Session[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  role          String    @default("STUDENT")
+  status        S
+
+  //  NextAuth relations requir by Account and Session models
+  accounts Account[]
+  sessions Session[]
+
+  // Section relation
+  sectionId String?
+  section   Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Account {
@@ -71,16 +78,16 @@ model VerificationToken {
 model Assignment {
   id                  String       @id @default(cuid())
   title               String
-  description         String?      // 👈 Optional Teacher Description
+  description         String? //  Optional Teacher Descriptn
   subject             String       @default("General Learning")
   section             String
   studentId           String?
   studentName         String?
-  attachmentUrl       String?      // 👈 Optional Teacher File Attachment (URL)
+  attachmentUrl       String? //  Optional Teacher File Atthment (URL)
   completedStudentIds String[]     @default([])
   dueDate             String?
   status              String       @default("active")
-  submissions         Submission[] // 👈 Relation for Student Submissions
+  submissions         Submission[] //  Relation for Student Submsions
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 }
@@ -91,6 +98,18 @@ model Submission {
   assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   studentId     String
   studentName   String
-  attachmentUrl String?    // 👈 Optional Student Uploaded File (URL)
+  attachmentUrl String? //  Optional Student Uploadedile (URL)
   submittedAt   DateTime   @default(now())
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  students  User[] //  Relation to students in ts section
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+Relation to students in this section
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -14,13 +14,16 @@ export async function GET() {
   const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
   const isTeacher = userEmail === teacherEmail;
 
-  // 1. TEACHER VIEW: Fetch ALL non-teacher accounts
+  // 1. TEACHER VIEW: Fetch ALL non-teacher accounts with Section details
   if (isTeacher && teacherEmail) {
     const students = await prisma.user.findMany({
       where: {
         NOT: {
           email: { equals: teacherEmail, mode: "insensitive" },
         },
+      },
+      include: {
+        section: true, // 👈 Include section relation
       },
       orderBy: { createdAt: "desc" },
     });
@@ -30,18 +33,23 @@ export async function GET() {
       name: s.name || "Student",
       email: s.email,
       avatar: s.image,
-      // Default to "pending" if status is null or missing
       status: (s.status || StudentStatus.PENDING).toString().toLowerCase(),
       createdAt: s.createdAt ? s.createdAt.toISOString() : new Date().toISOString(),
+      sectionId: s.sectionId || null,
+      sectionName: s.section?.name || null,
+      section: s.section || null,
     }));
 
     return NextResponse.json({ students: formattedStudents });
   }
 
-  // 2. STUDENT VIEW: Find or recreate student record
+  // 2. STUDENT VIEW: Find or recreate student record with Section details
   let student = await prisma.user.findFirst({
     where: {
       email: { equals: userEmail, mode: "insensitive" },
+    },
+    include: {
+      section: true, // 👈 Include assigned section
     },
   });
 
@@ -54,6 +62,9 @@ export async function GET() {
         role: Role.STUDENT,
         status: StudentStatus.PENDING,
       },
+      include: {
+        section: true,
+      },
     });
   }
 
@@ -62,6 +73,8 @@ export async function GET() {
       ? {
           ...student,
           status: (student.status || StudentStatus.PENDING).toString().toLowerCase(),
+          sectionId: student.sectionId || null,
+          sectionName: student.section?.name || null,
         }
       : null,
   });
@@ -90,20 +103,18 @@ export async function POST(req: Request) {
 
   const normalizedEmail = studentEmail.trim().toLowerCase();
 
-  // 💡 Updated actions to support toggling between Grant Access and Revoke Access safely without deleting user records
+  // Toggle actions for approving, declining, or deleting students
   if (action === "approve" || action === "grant") {
     await prisma.user.updateMany({
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
       data: { status: StudentStatus.APPROVED, role: Role.STUDENT },
     });
   } else if (action === "decline" || action === "revoke") {
-    // Updates status to DECLINED instead of deleting the database record entirely
     await prisma.user.updateMany({
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
       data: { status: StudentStatus.DECLINED },
     });
   } else if (action === "delete") {
-    // Permanent deletion option if ever needed explicitly
     await prisma.session.deleteMany({
       where: { user: { email: { equals: normalizedEmail, mode: "insensitive" } } },
     });
@@ -117,12 +128,15 @@ export async function POST(req: Request) {
     });
   }
 
-  // Return fresh list of all non-teacher students
+  // Return fresh list of all non-teacher students including section details
   const updatedStudents = await prisma.user.findMany({
     where: {
       NOT: {
         email: { equals: teacherEmail, mode: "insensitive" },
       },
+    },
+    include: {
+      section: true, // 👈 Include section relation
     },
     orderBy: { createdAt: "desc" },
   });
@@ -134,6 +148,9 @@ export async function POST(req: Request) {
     avatar: s.image,
     status: (s.status || StudentStatus.PENDING).toString().toLowerCase(),
     createdAt: s.createdAt ? s.createdAt.toISOString() : new Date().toISOString(),
+    sectionId: s.sectionId || null,
+    sectionName: s.section?.name || null,
+    section: s.section || null,
   }));
 
   return NextResponse.json({ success: true, students: formattedStudents });

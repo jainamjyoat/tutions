@@ -19,16 +19,11 @@ type Assignment = {
   status: "active" | "completed";
 };
 
-type Task = {
+type Classmate = {
   id: string;
-  title: string;
-  subtitle: string;
-  status: "completed" | "in-progress" | "pending";
-  due?: string;
-  progress?: number;
-  tag?: string;
-  tagColor?: string;
-  tagTextColor?: string;
+  name: string;
+  avatar: string;
+  email: string;
 };
 
 type ClassItem = {
@@ -65,10 +60,12 @@ type NotificationItem = {
 export default function StudentDashboard() {
   const { data: session, status } = useSession();
   const [approvalStatus, setApprovalStatus] = useState<"loading" | "pending" | "approved">("loading");
+  const [assignedSection, setAssignedSection] = useState<string | null>(null);
+  const [classmates, setClassmates] = useState<Classmate[]>([]);
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
-    "learning" | "assignments" | "tutors" | "achievements" | "resources"
+    "learning" | "assignments" | "sections" | "tutors" | "resources"
   >("learning");
 
   // Real Database Assignments State
@@ -83,8 +80,8 @@ export default function StudentDashboard() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([
     {
       id: "1",
-      title: "New Star Badge Earned!",
-      desc: "You completed 3 tasks in a row today.",
+      title: "New Assignment Posted",
+      desc: "Check your assigned tasks for this week.",
       time: "15 mins ago",
       read: false,
     },
@@ -102,11 +99,10 @@ export default function StudentDashboard() {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [soundEffects, setSoundEffects] = useState(true);
 
-  // Auto-redirect Teacher OR Check Student Approval Status on mount
+  // Auto-redirect Teacher OR Check Student Approval Status & Section on mount
   useEffect(() => {
     const userRole = (session?.user as any)?.role;
 
-    // 1. Auto-redirect teacher to teacher-dashboard
     if (
       status === "authenticated" &&
       (userRole === "TEACHER" || userRole === "teacher")
@@ -115,7 +111,6 @@ export default function StudentDashboard() {
       return;
     }
 
-    // 2. Otherwise, check student approval status
     async function checkApproval() {
       try {
         const res = await fetch("/api/student/status");
@@ -123,6 +118,9 @@ export default function StudentDashboard() {
           const data = await res.json();
           if (data.student?.status === "approved") {
             setApprovalStatus("approved");
+
+            const secName = data.student.section?.name || data.student.sectionName || null;
+            setAssignedSection(secName);
           } else {
             setApprovalStatus("pending");
           }
@@ -142,7 +140,7 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // 🔄 Fetch Assignments from Database & Filter specifically for this student
+  // 🔄 Fetch Assignments from Database
   useEffect(() => {
     async function fetchAssignments() {
       try {
@@ -153,14 +151,16 @@ export default function StudentDashboard() {
             const currentStudentId = (session?.user as any)?.id;
             const currentStudentName = session?.user?.name;
 
-            // Strict Filtering: Show only general assignments OR assignments targeted to this specific student
             const myAssignments = data.assignments.filter((a: Assignment) => {
               if (!a.studentId && !a.studentName) {
-                return true; // General assignment for all students
+                return true;
               }
               
               const matchesId = a.studentId && a.studentId === currentStudentId;
-              const matchesName = a.studentName && currentStudentName && a.studentName.toLowerCase() === currentStudentName.toLowerCase();
+              const matchesName =
+                a.studentName &&
+                currentStudentName &&
+                a.studentName.toLowerCase() === currentStudentName.toLowerCase();
 
               return matchesId || matchesName;
             });
@@ -185,12 +185,11 @@ export default function StudentDashboard() {
     setStudentFiles((prev) => ({ ...prev, [assignmentId]: file }));
   };
 
-  // 🔄 Toggle Assignment Completion in Database (Uploads optional student attachment if attached)
+  // Toggle Assignment Completion in Database
   const handleToggleAssignment = async (id: string, currentStatus: "active" | "completed") => {
     const nextStatus = currentStatus === "active" ? "completed" : "active";
     let uploadedUrl: string | null = null;
 
-    // Upload student file if marking as completed and a file is selected
     if (nextStatus === "completed" && studentFiles[id]) {
       setUploadingId(id);
       try {
@@ -200,7 +199,6 @@ export default function StudentDashboard() {
       }
     }
 
-    // Optimistic status update
     setAssignments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a))
     );
@@ -223,7 +221,6 @@ export default function StudentDashboard() {
             prev.map((a) => (a.id === id ? data.assignment : a))
           );
         }
-        // Reset file input for this assignment
         setStudentFiles((prev) => ({ ...prev, [id]: null }));
       }
     } catch (err) {
@@ -233,7 +230,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // Extract session details
   const userImage = session?.user?.image;
   const rawName = session?.user?.name || session?.user?.email || "Student";
   const firstName = rawName.split(" ")[0];
@@ -294,11 +290,12 @@ export default function StudentDashboard() {
 
   const [dailyProgress, setDailyProgress] = useState(65);
 
+  // Updated Navigation Items: Replaced "achievements" with "sections"
   const navItems = [
     { id: "learning" as const, icon: "school", label: "My Learning" },
     { id: "assignments" as const, icon: "assignment", label: "Assignments" },
+    { id: "sections" as const, icon: "groups", label: "My Section" },
     { id: "tutors" as const, icon: "face", label: "My Tutors" },
-    { id: "achievements" as const, icon: "military_tech", label: "Achievements" },
     { id: "resources" as const, icon: "library_books", label: "Resources" },
   ];
 
@@ -328,9 +325,6 @@ export default function StudentDashboard() {
     );
   };
 
-  // -------------------------------------------------------------
-  // 1. LOADING SCREEN
-  // -------------------------------------------------------------
   if (approvalStatus === "loading") {
     return (
       <div className="min-h-screen bg-[#fbf9f8] flex flex-col items-center justify-center gap-3">
@@ -342,9 +336,6 @@ export default function StudentDashboard() {
     );
   }
 
-  // -------------------------------------------------------------
-  // 2. PENDING APPROVAL SCREEN
-  // -------------------------------------------------------------
   if (approvalStatus === "pending") {
     return (
       <div className="min-h-screen w-full bg-[#fbf9f8] flex items-center justify-center p-4">
@@ -386,9 +377,6 @@ export default function StudentDashboard() {
     );
   }
 
-  // -------------------------------------------------------------
-  // 3. APPROVED STUDENT DASHBOARD (Normal Dashboard View)
-  // -------------------------------------------------------------
   return (
     <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row">
       {/* Desktop Sidebar */}
@@ -405,7 +393,7 @@ export default function StudentDashboard() {
           </span>
         </div>
 
-        {/* Dynamic Profile Avatar */}
+        {/* Dynamic Profile Avatar & Section Badge */}
         <div className="flex flex-col items-center mb-6 px-2">
           <div className="w-20 h-20 rounded-full border-4 border-[#005bbf] p-1 mb-3 bg-[#005bbf] text-white flex items-center justify-center overflow-hidden font-quicksand font-bold text-2xl shrink-0 shadow-sm">
             {userImage && !imageError ? (
@@ -426,7 +414,14 @@ export default function StudentDashboard() {
           <h2 className="font-quicksand text-xl font-bold text-[#1b1c1c] truncate max-w-full">
             Hi, {firstName}!
           </h2>
-          <p className="text-sm text-[#414754] font-medium">Ready to learn?</p>
+          
+          {assignedSection ? (
+            <span className="mt-1.5 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-3 py-0.5 rounded-full border border-[#005bbf]/20">
+              {assignedSection}
+            </span>
+          ) : (
+            <p className="text-xs text-[#727785] font-medium mt-1">No Section Assigned</p>
+          )}
         </div>
 
         <nav className="flex flex-col gap-1.5 flex-grow">
@@ -475,7 +470,6 @@ export default function StudentDashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2 text-[#005bbf]">
-          {/* Notifications Trigger */}
           <div className="relative">
             <button
               onClick={() => {
@@ -491,7 +485,6 @@ export default function StudentDashboard() {
               )}
             </button>
 
-            {/* Notifications Dropdown */}
             {showNotifications && (
               <div className="fixed inset-x-3 top-16 bg-white rounded-2xl shadow-xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
                 <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
@@ -539,7 +532,6 @@ export default function StudentDashboard() {
             )}
           </div>
 
-          {/* Settings Trigger */}
           <button
             onClick={() => {
               setShowSettingsModal(true);
@@ -551,7 +543,6 @@ export default function StudentDashboard() {
             <span className="material-symbols-outlined block">settings</span>
           </button>
 
-          {/* Mobile Menu Trigger */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="p-2 hover:opacity-80 transition-opacity"
@@ -586,6 +577,11 @@ export default function StudentDashboard() {
                 )}
               </div>
               <h2 className="font-quicksand text-lg font-bold">Hi, {firstName}!</h2>
+              {assignedSection && (
+                <span className="mt-1 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2.5 py-0.5 rounded-full">
+                  {assignedSection}
+                </span>
+              )}
             </div>
             {navItems.map((item) => (
               <button
@@ -621,27 +617,25 @@ export default function StudentDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 md:ml-64 p-4 md:p-8 overflow-y-auto w-full max-w-7xl mx-auto">
-        {/* Top Header Bar (Desktop Actions) */}
         <div className="flex justify-between items-end mb-8">
           <div>
             <h1 className="font-quicksand text-2xl sm:text-3xl md:text-4xl font-bold text-[#1b1c1c] mb-1.5">
               {activeNav === "learning" && "My Learning Journey"}
               {activeNav === "assignments" && "My Assignments & Activities"}
+              {activeNav === "sections" && "My Section & Classmates"}
               {activeNav === "tutors" && "My Teachers & Tutors"}
-              {activeNav === "achievements" && "My Badges & Trophies"}
               {activeNav === "resources" && "Learning Resources"}
             </h1>
             <p className="text-xs sm:text-sm text-[#414754]">
               {activeNav === "learning" && `Here is your plan for the week, ${firstName}!`}
               {activeNav === "assignments" && "Complete your assigned tasks from your teacher."}
+              {activeNav === "sections" && "View your section information and learning peers."}
               {activeNav === "tutors" && "Connect with your tutors and ask questions anytime."}
-              {activeNav === "achievements" && "Track stars and unlock rewards as you learn."}
               {activeNav === "resources" && "Download worksheets, guides, and storybooks."}
             </p>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            {/* Desktop Notifications Popover Trigger */}
             <div className="relative">
               <button
                 onClick={() => {
@@ -704,7 +698,6 @@ export default function StudentDashboard() {
               )}
             </div>
 
-            {/* Settings Trigger Button */}
             <button
               onClick={() => {
                 setShowSettingsModal(true);
@@ -721,14 +714,22 @@ export default function StudentDashboard() {
         {/* NAV VIEW: MY LEARNING */}
         {activeNav === "learning" && (
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Hero / Daily Progress */}
             <div className="md:col-span-8 bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-[#e4e2e1] relative overflow-hidden flex flex-col justify-between min-h-[300px]">
               <div className="absolute top-0 right-0 w-64 h-64 bg-[#d8e2ff] rounded-full blur-3xl opacity-30 -mr-20 -mt-20 pointer-events-none" />
               <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#ffdbd0] rounded-full blur-2xl opacity-20 -ml-10 -mb-10 pointer-events-none" />
               <div className="relative z-10 mb-6">
-                <div className="inline-block px-3 py-1 bg-[#fe6f42] text-white rounded-full text-xs font-bold font-quicksand mb-4 uppercase tracking-wider">
-                  Today&apos;s Focus
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="inline-block px-3 py-1 bg-[#fe6f42] text-white rounded-full text-xs font-bold font-quicksand uppercase tracking-wider">
+                    Today&apos;s Focus
+                  </span>
+
+                  {assignedSection && (
+                    <span className="inline-block px-3 py-1 bg-[#005bbf]/10 text-[#005bbf] border border-[#005bbf]/20 rounded-full text-xs font-bold font-quicksand">
+                      🏫 {assignedSection}
+                    </span>
+                  )}
                 </div>
+
                 <h2 className="font-quicksand text-2xl sm:text-3xl font-bold text-[#1b1c1c] mb-2">
                   Mastering Shapes &amp; Colors
                 </h2>
@@ -755,7 +756,6 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Quick Chat Widget */}
             <div className="md:col-span-4 bg-[#005bbf] rounded-3xl p-6 text-white shadow-md relative overflow-hidden flex flex-col">
               <div
                 className="absolute inset-0 opacity-10 pointer-events-none"
@@ -774,9 +774,6 @@ export default function StudentDashboard() {
                   </span>
                   Teacher Chat
                 </h3>
-                <button className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition-colors">
-                  <span className="material-symbols-outlined">edit_square</span>
-                </button>
               </div>
               <div className="relative z-10 flex-1 flex flex-col gap-4">
                 {messages.map((msg) => (
@@ -805,20 +802,13 @@ export default function StudentDashboard() {
                   </div>
                 ))}
               </div>
-              <button className="relative z-10 mt-4 w-full py-2.5 bg-white text-[#005bbf] font-quicksand font-bold rounded-xl hover:bg-[#f5f3f3] transition-colors shadow-sm text-xs sm:text-sm">
-                View All Messages
-              </button>
             </div>
 
-            {/* Upcoming Classes */}
             <div className="md:col-span-7 bg-white rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c]">
                   Upcoming Classes
                 </h3>
-                <button className="text-[#005bbf] text-xs sm:text-sm font-bold hover:underline">
-                  View Schedule
-                </button>
               </div>
               <div className="flex flex-col gap-4">
                 {classes.map((cls) => (
@@ -847,22 +837,12 @@ export default function StudentDashboard() {
                         <span className="material-symbols-outlined text-[14px]">schedule</span>
                         {cls.time}
                       </p>
-                      <p className="text-xs sm:text-sm text-[#414754] flex items-center gap-1 mt-0.5">
-                        <span className="material-symbols-outlined text-[14px]">person</span>
-                        {cls.teacher}
-                      </p>
-                    </div>
-                    <div className="hidden sm:flex">
-                      <button className="w-9 h-9 rounded-full border border-[#c1c6d6] flex items-center justify-center hover:bg-[#005bbf] hover:text-white hover:border-[#005bbf] transition-colors text-[#414754]">
-                        <span className="material-symbols-outlined text-lg">arrow_forward</span>
-                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* 📝 REAL DATABASE ASSIGNMENTS FROM TEACHER (OVERVIEW WIDGET) */}
             <div className="md:col-span-5 bg-[#f5f3f3] rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c] flex items-center gap-2">
@@ -921,14 +901,12 @@ export default function StudentDashboard() {
                             </span>
                           </div>
 
-                          {/* Teacher Description */}
                           {assignment.description && (
                             <p className="text-xs text-[#414754] my-1.5 bg-[#f5f3f3] p-2 rounded-lg border border-[#eae8e7]/60">
                               {assignment.description}
                             </p>
                           )}
 
-                          {/* Teacher Attachment Link */}
                           {assignment.attachmentUrl && (
                             <a
                               href={assignment.attachmentUrl}
@@ -956,7 +934,7 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* 📝 NAV VIEW: DEDICATED ASSIGNMENTS TAB */}
+        {/* NAV VIEW: DEDICATED ASSIGNMENTS TAB */}
         {activeNav === "assignments" && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -975,12 +953,7 @@ export default function StudentDashboard() {
                 <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
                   assignment_turned_in
                 </span>
-                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
-                  All Caught Up!
-                </h3>
-                <p className="text-xs sm:text-sm text-[#727785] mt-1">
-                  You currently have no assignments assigned to you.
-                </p>
+                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">All Caught Up!</h3>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1011,14 +984,12 @@ export default function StudentDashboard() {
                           {assignment.title}
                         </h3>
 
-                        {/* Optional Teacher Description */}
                         {assignment.description && (
                           <p className="text-xs text-[#414754] my-2 bg-[#f5f3f3] p-2.5 rounded-xl border border-[#eae8e7]/60">
                             {assignment.description}
                           </p>
                         )}
 
-                        {/* Optional Teacher Attachment Download */}
                         {assignment.attachmentUrl && (
                           <a
                             href={assignment.attachmentUrl}
@@ -1036,19 +1007,12 @@ export default function StudentDashboard() {
                             <span className="material-symbols-outlined text-sm">school</span>
                             <span>{assignment.section}</span>
                           </p>
-                          {assignment.studentName && (
-                            <p className="text-xs font-semibold text-[#005bbf] flex items-center gap-1">
-                              <span className="material-symbols-outlined text-sm">person</span>
-                              <span>Assigned to: {assignment.studentName}</span>
-                            </p>
-                          )}
                           <p className="text-xs text-[#727785] flex items-center gap-1">
                             <span className="material-symbols-outlined text-sm">event</span>
                             <span>Due: {assignment.dueDate}</span>
                           </p>
                         </div>
 
-                        {/* Optional Student Completed File Attachment Input */}
                         {!isCompleted && (
                           <div className="mt-3 pt-2 border-t border-[#eae8e7]">
                             <label className="block text-[11px] font-semibold text-[#414754] mb-1">
@@ -1094,6 +1058,66 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* 🏫 NEW NAV VIEW: MY SECTION */}
+        {activeNav === "sections" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-6 md:p-8 border border-[#eae8e7] shadow-sm">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-3xl">school</span>
+                </div>
+                <div>
+                  <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
+                    {assignedSection ? `Section: ${assignedSection}` : "No Section Assigned"}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#727785]">
+                    {assignedSection
+                      ? "You are registered in this academic section."
+                      : "Ask your teacher to assign you to a section from the Teacher Dashboard."}
+                  </p>
+                </div>
+              </div>
+
+              {assignedSection && (
+                <div className="mt-6 pt-6 border-t border-[#eae8e7]">
+                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-3 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[#005bbf]">groups</span>
+                    Classmates in {assignedSection}
+                  </h3>
+                  <p className="text-xs text-[#727785] mb-4">
+                    Students enrolled in the same section as you.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="flex items-center gap-3 bg-[#f5f3f3] p-3 rounded-2xl border border-[#eae8e7]">
+                      <div className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold font-quicksand shrink-0 overflow-hidden">
+                        {userImage && !imageError ? (
+                          <Image
+                            src={userImage}
+                            alt={rawName}
+                            width={40}
+                            height={40}
+                            unoptimized
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span>{userInitial}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">
+                          {rawName} (You)
+                        </p>
+                        <span className="text-[10px] text-[#005bbf] font-semibold">Active Student</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* NAV VIEW: MY TUTORS */}
         {activeNav === "tutors" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1109,28 +1133,10 @@ export default function StudentDashboard() {
               <div>
                 <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">Ms. Sarah</h3>
                 <p className="text-xs text-[#727785]">Math Tutor</p>
-                <span className="inline-block mt-2 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">Active Tutor</span>
+                <span className="inline-block mt-2 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  Active Tutor
+                </span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* NAV VIEW: ACHIEVEMENTS */}
-        {activeNav === "achievements" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-3xl p-5 border border-[#e4e2e1] text-center">
-              <div className="w-16 h-16 rounded-full bg-[#ffdfa0] text-[#795900] mx-auto flex items-center justify-center mb-3">
-                <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-              </div>
-              <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Early Bird</h4>
-              <p className="text-[11px] text-[#727785] mt-1">Completed 5 morning goals</p>
-            </div>
-            <div className="bg-white rounded-3xl p-5 border border-[#e4e2e1] text-center">
-              <div className="w-16 h-16 rounded-full bg-[#d8e2ff] text-[#005bbf] mx-auto flex items-center justify-center mb-3">
-                <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
-              </div>
-              <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Math Master</h4>
-              <p className="text-[11px] text-[#727785] mt-1">Counted to 20 perfectly</p>
             </div>
           </div>
         )}
@@ -1146,7 +1152,9 @@ export default function StudentDashboard() {
                   <p className="text-xs text-[#727785]">PDF • Printable trace guide</p>
                 </div>
               </div>
-              <button className="bg-[#f5f3f3] text-[#005bbf] px-4 py-1.5 rounded-full text-xs font-bold font-quicksand hover:bg-[#005bbf]/10">Download</button>
+              <button className="bg-[#f5f3f3] text-[#005bbf] px-4 py-1.5 rounded-full text-xs font-bold font-quicksand hover:bg-[#005bbf]/10">
+                Download
+              </button>
             </div>
           </div>
         )}
@@ -1158,7 +1166,6 @@ export default function StudentDashboard() {
         () => setShowSettingsModal(false),
         "Student Settings",
         <div className="space-y-5 sm:space-y-6">
-          {/* Account Profile Card */}
           <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
               {userImage && !imageError ? (
@@ -1179,13 +1186,13 @@ export default function StudentDashboard() {
             <div className="min-w-0">
               <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">{rawName}</h4>
               <p className="text-xs text-[#727785] truncate">{session?.user?.email || "student@happytoddles.com"}</p>
+              
               <span className="inline-block mt-1 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                Active Student
+                {assignedSection ? `Section: ${assignedSection}` : "Active Student (No Section)"}
               </span>
             </div>
           </div>
 
-          {/* Preferences Toggles */}
           <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
             <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
 
@@ -1210,7 +1217,6 @@ export default function StudentDashboard() {
             </label>
           </div>
 
-          {/* Sign Out Action Button */}
           <div className="pt-3 border-t border-[#eae8e7]">
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
