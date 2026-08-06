@@ -69,15 +69,28 @@ model VerificationToken {
 }
 
 model Assignment {
-  id                  String   @id @default(cuid())
+  id                  String       @id @default(cuid())
   title               String
-  subject             String   @default("General Learning")
+  description         String?      // 👈 Optional Teacher Description
+  subject             String       @default("General Learning")
   section             String
   studentId           String?
   studentName         String?
-  completedStudentIds String[] @default([])
+  attachmentUrl       String?      // 👈 Optional Teacher File Attachment (URL)
+  completedStudentIds String[]     @default([])
   dueDate             String?
-  status              String   @default("active")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status              String       @default("active")
+  submissions         Submission[] // 👈 Relation for Student Submissions
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model Submission {
+  id            String     @id @default(cuid())
+  assignmentId  String
+  assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  studentId     String
+  studentName   String
+  attachmentUrl String?    // 👈 Optional Student Uploaded File (URL)
+  submittedAt   DateTime   @default(now())
 }

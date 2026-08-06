@@ -3,14 +3,18 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
+import { uploadAssignmentFile } from "@/lib/upload";
 
 type Assignment = {
   id: string;
   title: string;
+  description?: string | null;
   subject: string;
   section: string;
   studentId?: string | null;
   studentName?: string | null;
+  attachmentUrl?: string | null;
+  completedStudentIds?: string[];
   dueDate: string;
   status: "active" | "completed";
 };
@@ -69,6 +73,10 @@ export default function StudentDashboard() {
 
   // Real Database Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+
+  // Student File Attachments State (mapped by assignment ID)
+  const [studentFiles, setStudentFiles] = useState<{ [key: string]: File | null }>({});
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -172,23 +180,56 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // 🔄 Toggle Assignment Completion in Database
+  // Handle student file input selection
+  const handleFileChange = (assignmentId: string, file: File | null) => {
+    setStudentFiles((prev) => ({ ...prev, [assignmentId]: file }));
+  };
+
+  // 🔄 Toggle Assignment Completion in Database (Uploads optional student attachment if attached)
   const handleToggleAssignment = async (id: string, currentStatus: "active" | "completed") => {
     const nextStatus = currentStatus === "active" ? "completed" : "active";
+    let uploadedUrl: string | null = null;
 
-    // Optimistic state update
+    // Upload student file if marking as completed and a file is selected
+    if (nextStatus === "completed" && studentFiles[id]) {
+      setUploadingId(id);
+      try {
+        uploadedUrl = await uploadAssignmentFile(studentFiles[id]!);
+      } catch (err) {
+        console.error("Failed to upload student attachment:", err);
+      }
+    }
+
+    // Optimistic status update
     setAssignments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a))
     );
 
     try {
-      await fetch("/api/assignments", {
+      const res = await fetch("/api/assignments", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: nextStatus }),
+        body: JSON.stringify({
+          id,
+          status: nextStatus,
+          studentAttachmentUrl: uploadedUrl,
+        }),
       });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.assignment) {
+          setAssignments((prev) =>
+            prev.map((a) => (a.id === id ? data.assignment : a))
+          );
+        }
+        // Reset file input for this assignment
+        setStudentFiles((prev) => ({ ...prev, [id]: null }));
+      }
     } catch (err) {
       console.error("Failed to update assignment status:", err);
+    } finally {
+      setUploadingId(null);
     }
   };
 
@@ -849,6 +890,7 @@ export default function StudentDashboard() {
                       <button
                         key={assignment.id}
                         onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
+                        disabled={uploadingId === assignment.id}
                         className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all w-full ${
                           isCompleted
                             ? "bg-white border-[#e4e2e1] opacity-75"
@@ -878,6 +920,28 @@ export default function StudentDashboard() {
                               {assignment.subject}
                             </span>
                           </div>
+
+                          {/* Teacher Description */}
+                          {assignment.description && (
+                            <p className="text-xs text-[#414754] my-1.5 bg-[#f5f3f3] p-2 rounded-lg border border-[#eae8e7]/60">
+                              {assignment.description}
+                            </p>
+                          )}
+
+                          {/* Teacher Attachment Link */}
+                          {assignment.attachmentUrl && (
+                            <a
+                              href={assignment.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-[11px] text-[#005bbf] font-bold hover:underline my-1"
+                            >
+                              <span className="material-symbols-outlined text-xs">attach_file</span>
+                              <span>View Teacher Attachment</span>
+                            </a>
+                          )}
+
                           <div className="flex items-center justify-between text-[11px] text-[#727785] mt-1">
                             <span>Section: {assignment.section}</span>
                             <span className="font-medium text-[#ac3509]">Due: {assignment.dueDate}</span>
@@ -901,7 +965,7 @@ export default function StudentDashboard() {
                   Your Assigned Tasks ({assignments.length})
                 </h2>
                 <p className="text-xs sm:text-sm text-[#727785] mt-1">
-                  Click any task to toggle its completion status.
+                  Complete your tasks and optionally attach your completed work file.
                 </p>
               </div>
             </div>
@@ -946,6 +1010,27 @@ export default function StudentDashboard() {
                         <h3 className={`font-quicksand font-bold text-base text-[#1b1c1c] ${isCompleted ? "line-through text-[#727785]" : ""}`}>
                           {assignment.title}
                         </h3>
+
+                        {/* Optional Teacher Description */}
+                        {assignment.description && (
+                          <p className="text-xs text-[#414754] my-2 bg-[#f5f3f3] p-2.5 rounded-xl border border-[#eae8e7]/60">
+                            {assignment.description}
+                          </p>
+                        )}
+
+                        {/* Optional Teacher Attachment Download */}
+                        {assignment.attachmentUrl && (
+                          <a
+                            href={assignment.attachmentUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs text-[#005bbf] font-bold hover:underline my-1.5"
+                          >
+                            <span className="material-symbols-outlined text-sm">attach_file</span>
+                            <span>View Teacher Attachment</span>
+                          </a>
+                        )}
+
                         <div className="mt-2 space-y-1">
                           <p className="text-xs text-[#727785] flex items-center gap-1">
                             <span className="material-symbols-outlined text-sm">school</span>
@@ -962,12 +1047,28 @@ export default function StudentDashboard() {
                             <span>Due: {assignment.dueDate}</span>
                           </p>
                         </div>
+
+                        {/* Optional Student Completed File Attachment Input */}
+                        {!isCompleted && (
+                          <div className="mt-3 pt-2 border-t border-[#eae8e7]">
+                            <label className="block text-[11px] font-semibold text-[#414754] mb-1">
+                              Attach Completed Work (PDF, Image, Word) (Optional)
+                            </label>
+                            <input
+                              type="file"
+                              accept="image/*,.pdf,.doc,.docx"
+                              className="w-full text-xs text-[#727785] file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer"
+                              onChange={(e) => handleFileChange(assignment.id, e.target.files?.[0] || null)}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       <div className="pt-3 border-t border-[#eae8e7]">
                         <button
                           onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
-                          className={`w-full py-2.5 rounded-xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 ${
+                          disabled={uploadingId === assignment.id}
+                          className={`w-full py-2.5 rounded-xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50 ${
                             isCompleted
                               ? "bg-[#f5f3f3] text-[#414754] hover:bg-[#eae8e7]"
                               : "bg-[#005bbf] text-white hover:bg-[#004493]"
@@ -976,7 +1077,13 @@ export default function StudentDashboard() {
                           <span className="material-symbols-outlined text-base">
                             {isCompleted ? "undo" : "check_circle"}
                           </span>
-                          <span>{isCompleted ? "Mark Incomplete" : "Mark as Complete"}</span>
+                          <span>
+                            {uploadingId === assignment.id
+                              ? "Uploading Attachment..."
+                              : isCompleted
+                              ? "Mark Incomplete"
+                              : "Mark as Complete"}
+                          </span>
                         </button>
                       </div>
                     </div>

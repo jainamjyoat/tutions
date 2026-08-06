@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
+import { uploadAssignmentFile } from "@/lib/upload";
 
 type Student = {
   id: string;
@@ -15,14 +16,25 @@ type Student = {
   email: string;
 };
 
+type Submission = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  attachmentUrl?: string | null;
+  submittedAt: string;
+};
+
 type Assignment = {
   id: string;
   title: string;
+  description?: string | null;
   subject: string;
   section: string;
   studentId?: string | null;
   studentName?: string | null;
+  attachmentUrl?: string | null;
   completedStudentIds?: string[];
+  submissions?: Submission[];
   dueDate: string;
   status: "active" | "completed";
 };
@@ -86,8 +98,12 @@ export default function TeacherDashboard() {
   // Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [showAddAssignment, setShowAddAssignment] = useState(false);
+  const [teacherFile, setTeacherFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
   const [newAssignment, setNewAssignment] = useState({
     title: "",
+    description: "",
     subject: "General Learning",
     section: "No Section",
     studentId: "",
@@ -167,7 +183,6 @@ export default function TeacherDashboard() {
             const studentList: Student[] = data.students
               .filter((s: { status: string }) => s.status !== "pending")
               .map((s: { id: string; name: string; email: string; avatar?: string; status: string }) => {
-                // Calculate real dynamic progress percentage
                 const targetAssignments = assignments.filter(
                   (a) =>
                     !a.studentId ||
@@ -214,7 +229,7 @@ export default function TeacherDashboard() {
     return () => clearInterval(interval);
   }, [assignments]);
 
-  // 🔄 OUTSIDE BUTTON ACTION: Toggle Student Access
+  // 🔄 Toggle Student Access
   const handleToggleAccess = async (student: Student) => {
     const isApproved = student.status === "approved" || student.status === "active";
     const action = isApproved ? "revoke" : "grant";
@@ -245,7 +260,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 🗑️ INSIDE MODAL ACTION: Permanently Delete Student from Database
+  // 🗑️ Delete Student
   const handleDeleteStudent = async (student: Student) => {
     if (
       !confirm(
@@ -276,48 +291,65 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Create New Assignment in Database
-    const handleAddAssignment = async () => {
-      if (!newAssignment.title || !newAssignment.title.trim()) {
-        alert("Please enter an assignment title.");
-        return;
-      }
+  // Create New Assignment with File Upload & Description
+  const handleAddAssignment = async () => {
+    if (!newAssignment.title || !newAssignment.title.trim()) {
+      alert("Please enter an assignment title.");
+      return;
+    }
 
+    setIsUploading(true);
+    let uploadedUrl = null;
+
+    if (teacherFile) {
       try {
-        const res = await fetch("/api/assignments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: newAssignment.title.trim(),
-            subject: newAssignment.subject || "General Learning",
-            section: newAssignment.section || "No Section",
-            studentId: newAssignment.studentId || null,
-            studentName: newAssignment.studentName || null,
-            dueDate: newAssignment.dueDate || "No Due Date",
-          }),
-        });
-
-        const data = await res.json();
-
-        if (res.ok && data.assignment) {
-          setAssignments((prev) => [data.assignment, ...prev]);
-          setNewAssignment({
-            title: "",
-            subject: "General Learning",
-            section: "No Section",
-            studentId: "",
-            studentName: "",
-            dueDate: "",
-          });
-          setShowAddAssignment(false);
-        } else {
-          alert(data.error || "Failed to publish assignment.");
-        }
+        uploadedUrl = await uploadAssignmentFile(teacherFile);
       } catch (err) {
-        console.error("Failed to save assignment to database:", err);
-        alert("Network error: Could not save assignment.");
+        console.error("File upload failed:", err);
       }
-    };
+    }
+
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newAssignment.title.trim(),
+          description: newAssignment.description.trim() || null,
+          subject: newAssignment.subject || "General Learning",
+          section: newAssignment.section || "No Section",
+          studentId: newAssignment.studentId || null,
+          studentName: newAssignment.studentName || null,
+          attachmentUrl: uploadedUrl,
+          dueDate: newAssignment.dueDate || "No Due Date",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.assignment) {
+        setAssignments((prev) => [data.assignment, ...prev]);
+        setNewAssignment({
+          title: "",
+          description: "",
+          subject: "General Learning",
+          section: "No Section",
+          studentId: "",
+          studentName: "",
+          dueDate: "",
+        });
+        setTeacherFile(null);
+        setShowAddAssignment(false);
+      } else {
+        alert(data.error || "Failed to publish assignment.");
+      }
+    } catch (err) {
+      console.error("Failed to save assignment to database:", err);
+      alert("Network error: Could not save assignment.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   // Toggle Assignment Status
   const handleToggleAssignmentStatus = async (id: string) => {
@@ -1278,20 +1310,64 @@ export default function TeacherDashboard() {
                         <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
                           {assignment.title}
                         </h3>
-                        <p className="text-xs text-[#727785] mt-1 flex items-center gap-1">
-                          <span className="material-symbols-outlined text-sm">school</span>
-                          <span>{assignment.section}</span>
-                        </p>
-                        {assignment.studentName && (
-                          <p className="text-xs font-semibold text-[#005bbf] mt-0.5 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-sm">person</span>
-                            <span>Assigned to: {assignment.studentName}</span>
+
+                        {/* Optional Description */}
+                        {assignment.description && (
+                          <p className="text-xs text-[#414754] my-2 bg-[#f5f3f3] p-2.5 rounded-xl border border-[#eae8e7]/60">
+                            {assignment.description}
                           </p>
                         )}
-                        <p className="text-xs text-[#727785] mt-0.5 flex items-center gap-1">
-                          <span className="material-symbols-outlined text-sm">event</span>
-                          <span>Due: {assignment.dueDate}</span>
-                        </p>
+
+                        {/* Optional Teacher Attachment Download */}
+                        {assignment.attachmentUrl && (
+                          <a
+                            href={assignment.attachmentUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs text-[#005bbf] font-bold hover:underline my-1.5"
+                          >
+                            <span className="material-symbols-outlined text-sm">attach_file</span>
+                            View Attached File
+                          </a>
+                        )}
+
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-[#727785] flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">school</span>
+                            <span>{assignment.section}</span>
+                          </p>
+                          {assignment.studentName && (
+                            <p className="text-xs font-semibold text-[#005bbf] flex items-center gap-1">
+                              <span className="material-symbols-outlined text-sm">person</span>
+                              <span>Assigned to: {assignment.studentName}</span>
+                            </p>
+                          )}
+                          <p className="text-xs text-[#727785] flex items-center gap-1">
+                            <span className="material-symbols-outlined text-sm">event</span>
+                            <span>Due: {assignment.dueDate}</span>
+                          </p>
+                        </div>
+
+                        {/* Submitted Files List */}
+                        {assignment.submissions && assignment.submissions.length > 0 && (
+                          <div className="mt-3 pt-2 border-t border-[#eae8e7]">
+                            <p className="text-xs font-bold text-[#1b1c1c] mb-1">Student Submissions:</p>
+                            <div className="space-y-1 max-h-24 overflow-y-auto">
+                              {assignment.submissions.map((sub) => (
+                                <div key={sub.id} className="text-[11px] flex justify-between items-center bg-[#f5f3f3] px-2 py-1 rounded-lg">
+                                  <span className="font-semibold text-[#1b1c1c]">{sub.studentName}</span>
+                                  {sub.attachmentUrl ? (
+                                    <a href={sub.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-[#005bbf] hover:underline font-bold">
+                                      File 📄
+                                    </a>
+                                  ) : (
+                                    <span className="text-[#0f9d58]">Done ✓</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex gap-2 pt-3 border-t border-[#eae8e7]">
@@ -1593,13 +1669,34 @@ export default function TeacherDashboard() {
       {renderModal(showAddAssignment, () => setShowAddAssignment(false), "Create New Assignment", (
         <div className="space-y-4 sm:space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Title</label>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Title *</label>
             <input
               type="text"
               placeholder="e.g. Alphabet Soup Worksheet"
               className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
               value={newAssignment.title}
               onChange={(e) => setNewAssignment({ ...newAssignment, title: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Description (Optional)</label>
+            <textarea
+              rows={3}
+              placeholder="Add instructions, guidelines, or details for this assignment..."
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              value={newAssignment.description}
+              onChange={(e) => setNewAssignment({ ...newAssignment, description: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Attach File (PDF, Image, Word) (Optional)</label>
+            <input
+              type="file"
+              accept="image/*,.pdf,.doc,.docx"
+              className="w-full text-xs text-[#727785] file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer"
+              onChange={(e) => setTeacherFile(e.target.files?.[0] || null)}
             />
           </div>
 
@@ -1672,9 +1769,10 @@ export default function TeacherDashboard() {
 
           <button
             onClick={handleAddAssignment}
-            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
+            disabled={isUploading}
+            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform disabled:opacity-50"
           >
-            Publish Assignment
+            {isUploading ? "Uploading Attached File..." : "Publish Assignment"}
           </button>
         </div>
       ))}
