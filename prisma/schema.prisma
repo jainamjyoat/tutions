@@ -26,9 +26,9 @@ model User {
   emailVerified DateTime?
   image         String?
   role          String    @default("STUDENT")
-  status        S
+  status        String    @default("pending")
 
-  //  NextAuth relations requir by Account and Session models
+  // NextAuth relations required by Account and Session models
   accounts Account[]
   sessions Session[]
 
@@ -78,16 +78,16 @@ model VerificationToken {
 model Assignment {
   id                  String       @id @default(cuid())
   title               String
-  description         String? //  Optional Teacher Descriptn
+  description         String?
   subject             String       @default("General Learning")
   section             String
   studentId           String?
   studentName         String?
-  attachmentUrl       String? //  Optional Teacher File Atthment (URL)
+  attachmentUrl       String?
   completedStudentIds String[]     @default([])
   dueDate             String?
   status              String       @default("active")
-  submissions         Submission[] //  Relation for Student Submsions
+  submissions         Submission[]
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 }
@@ -98,18 +98,14 @@ model Submission {
   assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   studentId     String
   studentName   String
-  attachmentUrl String? //  Optional Student Uploadedile (URL)
+  attachmentUrl String?
   submittedAt   DateTime   @default(now())
 }
 
 model Section {
   id        String   @id @default(cuid())
   name      String   @unique
-  students  User[] //  Relation to students in ts section
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-Relation to students in this section
+  students  User[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
