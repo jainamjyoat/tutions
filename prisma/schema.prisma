@@ -28,13 +28,16 @@ model User {
   role          String    @default("STUDENT")
   status        String    @default("pending")
 
-  // NextAuth relations required by Account and Session models
+  // NextAuth relations
   accounts Account[]
   sessions Session[]
 
   // Section relation
   sectionId String?
   section   Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  // Meeting relation
+  meetings Meeting[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -106,7 +109,7 @@ model Section {
   id        String           @id @default(cuid())
   name      String           @unique
   students  User[]
-  messages  SectionMessage[] // 👈 Section messages relation
+  messages  SectionMessage[]
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 }
@@ -117,10 +120,10 @@ model SectionMessage {
   section      Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   senderEmail  String
   senderName   String
-  senderRole   String   // "TEACHER" or "STUDENT"
+  senderRole   String // "TEACHER" or "STUDENT"
   senderAvatar String?
   text         String
-  seenBy       String[] @default([]) // 👈 Tracks emails of users who saw this message
+  seenBy       String[] @default([])
   createdAt    DateTime @default(now())
 }
 
@@ -133,4 +136,20 @@ model SectionTyping {
   updatedAt  DateTime @updatedAt
 
   @@unique([sectionId, userEmail])
+}
+
+model Meeting {
+  id           String   @id @default(cuid())
+  topic        String
+  date         String
+  time         String
+  endTime      String
+  meetLink     String
+  status       String   @default("upcoming") // "upcoming" | "completed" | "cancelled"
+  studentId    String?
+  student      User?    @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  studentName  String?
+  studentEmail String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

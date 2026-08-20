@@ -69,11 +69,21 @@ type Invite = {
 
 type Meeting = {
   id: string;
-  studentId: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  studentEmail?: string | null;
+  student?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    image: string | null;
+  } | null;
   topic: string;
   date: string;
   time: string;
+  endTime?: string | null;
   meetLink: string;
+  status: "upcoming" | "completed" | "cancelled";
 };
 
 type NotificationItem = {
@@ -102,7 +112,7 @@ export default function TeacherDashboard() {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
   const [defaultMeetLink, setDefaultMeetLink] = useState(
-    "https://meet.google.com/abc-defg-hij"
+    "https://meet.google.com/new"
   );
 
   const [students, setStudents] = useState<Student[]>([]);
@@ -139,25 +149,37 @@ export default function TeacherDashboard() {
   const [newMessageText, setNewMessageText] = useState("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Meetings State
+  // 📅 Complete Database-Backed Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [scheduleFilter, setScheduleFilter] = useState<"upcoming" | "today" | "completed" | "all">("upcoming");
+  const [isScheduling, setIsScheduling] = useState(false);
 
   const [scheduleForm, setScheduleForm] = useState({
     studentId: "",
     topic: "",
     date: "",
     time: "",
+    endTime: "",
     meetLink: "",
   });
 
-  // 🔄 Auto-scroll to bottom of chat
+  // Helper to ensure teacher joins with host privileges
+  const getTeacherHostUrl = (link: string) => {
+    const teacherEmail = "happytoddlers18@gmail.com";
+    const targetLink = link || defaultMeetLink || "https://meet.google.com/new";
+    if (targetLink.includes("?")) {
+      return `${targetLink}&authuser=${encodeURIComponent(teacherEmail)}`;
+    }
+    return `${targetLink}?authuser=${encodeURIComponent(teacherEmail)}`;
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  // 🔄 Fetch section chat messages & poll
   useEffect(() => {
     if (!chatSection) return;
 
@@ -178,7 +200,6 @@ export default function TeacherDashboard() {
     return () => clearInterval(interval);
   }, [chatSection]);
 
-  // 💬 Send Section Message
   const handleSendMessage = async () => {
     if (!newMessageText.trim() || !chatSection) return;
 
@@ -208,7 +229,26 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 🔄 Fetch sections from database on mount
+  useEffect(() => {
+    async function fetchMeetings() {
+      try {
+        const res = await fetch("/api/meetings");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.meetings) {
+            setMeetings(data.meetings);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch meetings from DB:", err);
+      }
+    }
+
+    fetchMeetings();
+    const interval = setInterval(fetchMeetings, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     async function fetchSections() {
       try {
@@ -227,7 +267,6 @@ export default function TeacherDashboard() {
     fetchSections();
   }, []);
 
-  // 🔄 Fetch assignments from database on load & poll
   useEffect(() => {
     async function fetchAssignments() {
       try {
@@ -248,7 +287,6 @@ export default function TeacherDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // 🔄 Fetch pending & registered students + calculate real-time dynamic progress
   useEffect(() => {
     setMounted(true);
 
@@ -325,7 +363,6 @@ export default function TeacherDashboard() {
     return () => clearInterval(interval);
   }, [assignments]);
 
-  // 🔄 Assign / Unassign Student to Section
   const handleAssignStudentToSection = async (studentEmail: string, sectionId: string | null) => {
     try {
       const res = await fetch("/api/sections/assign", {
@@ -370,7 +407,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 🔄 Toggle Student Access
   const handleToggleAccess = async (student: Student) => {
     const isApproved = student.status === "approved" || student.status === "active";
     const action = isApproved ? "revoke" : "grant";
@@ -401,7 +437,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 🗑️ Delete Student
   const handleDeleteStudent = async (student: Student) => {
     if (
       !confirm(
@@ -432,7 +467,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Create New Assignment
   const handleAddAssignment = async () => {
     if (!newAssignment.title || !newAssignment.title.trim()) {
       alert("Please enter an assignment title.");
@@ -492,7 +526,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Toggle Assignment Status
   const handleToggleAssignmentStatus = async (id: string) => {
     const current = assignments.find((a) => a.id === id);
     if (!current) return;
@@ -516,7 +549,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Delete Assignment
   const handleDeleteAssignment = async (id: string) => {
     try {
       const res = await fetch("/api/assignments", {
@@ -533,7 +565,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Accept Invite
   const handleAcceptInvite = async (invite: Invite) => {
     try {
       const res = await fetch("/api/student/status", {
@@ -561,7 +592,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Decline Invite
   const handleDeclineInvite = async (invite: Invite) => {
     try {
       const res = await fetch("/api/student/status", {
@@ -595,33 +625,129 @@ export default function TeacherDashboard() {
   };
 
   const openScheduleForStudent = (studentId: string) => {
-    setScheduleForm((prev) => ({ ...prev, studentId, meetLink: defaultMeetLink }));
+    setScheduleForm({
+      studentId,
+      topic: "",
+      date: new Date().toISOString().split("T")[0],
+      time: "10:00 AM",
+      endTime: "10:50 AM",
+      meetLink: defaultMeetLink,
+    });
     setShowScheduleModal(true);
   };
 
-  const handleScheduleMeet = () => {
-    if (
-      !scheduleForm.studentId ||
-      !scheduleForm.topic ||
-      !scheduleForm.date ||
-      !scheduleForm.time ||
-      !scheduleForm.meetLink
-    )
+  const handleScheduleMeet = async () => {
+    if (!scheduleForm.topic.trim() || !scheduleForm.date || !scheduleForm.time || !scheduleForm.endTime) {
+      alert("Please fill in the topic, date, start time, and end time.");
       return;
-    const meeting: Meeting = {
-      id: Math.random().toString(36).slice(2, 11),
-      studentId: scheduleForm.studentId,
-      topic: scheduleForm.topic,
-      date: scheduleForm.date,
-      time: scheduleForm.time,
-      meetLink: scheduleForm.meetLink,
-    };
-    setMeetings((prev) => [...prev, meeting]);
-    setShowScheduleModal(false);
-    setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
+    }
+
+    setIsScheduling(true);
+    try {
+      const res = await fetch("/api/meetings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: scheduleForm.studentId || null,
+          topic: scheduleForm.topic.trim(),
+          date: scheduleForm.date,
+          time: scheduleForm.time,
+          endTime: scheduleForm.endTime,
+          meetLink: scheduleForm.meetLink || defaultMeetLink,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.meeting) {
+        setMeetings((prev) => [data.meeting, ...prev]);
+        setShowScheduleModal(false);
+        setScheduleForm({
+          studentId: "",
+          topic: "",
+          date: new Date().toISOString().split("T")[0],
+          time: "10:00 AM",
+          endTime: "10:50 AM",
+          meetLink: defaultMeetLink,
+        });
+      } else {
+        alert(data.error || "Failed to schedule meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to save meeting to DB:", err);
+      alert("Network error: Could not schedule meeting.");
+    } finally {
+      setIsScheduling(false);
+    }
   };
 
-  // ➕ Create Section
+  const handleUpdateMeetingStatus = async (id: string, newStatus: "upcoming" | "completed" | "cancelled") => {
+    try {
+      const res = await fetch("/api/meetings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: newStatus }),
+      });
+
+      if (res.ok) {
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status: newStatus } : m))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update meeting status:", err);
+    }
+  };
+
+  const handleSaveRescheduledMeeting = async () => {
+    if (!editingMeeting) return;
+
+    try {
+      const res = await fetch("/api/meetings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingMeeting.id,
+          topic: editingMeeting.topic,
+          date: editingMeeting.date,
+          time: editingMeeting.time,
+          endTime: editingMeeting.endTime,
+          meetLink: editingMeeting.meetLink,
+        }),
+      });
+
+      if (res.ok) {
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === editingMeeting.id ? editingMeeting : m))
+        );
+        setEditingMeeting(null);
+      } else {
+        alert("Failed to update meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to update meeting:", err);
+    }
+  };
+
+  const handleDeleteMeeting = async (id: string) => {
+    if (!confirm("Are you sure you want to cancel and delete this scheduled meeting?")) return;
+
+    try {
+      const res = await fetch("/api/meetings", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setMeetings((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        alert("Failed to delete meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to delete meeting:", err);
+    }
+  };
+
   const handleAddSection = async () => {
     if (!newSection.name || !newSection.name.trim()) return;
 
@@ -646,7 +772,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 🗑️ Delete Section
   const handleDeleteSection = async (id: string) => {
     try {
       const res = await fetch("/api/sections", {
@@ -684,6 +809,17 @@ export default function TeacherDashboard() {
         year: "numeric",
       })
     : "";
+
+  const isoToday = new Date().toISOString().split("T")[0];
+
+  const todayMeetings = meetings.filter((m) => m.date === isoToday && m.status === "upcoming");
+
+  const filteredMeetings = meetings.filter((m) => {
+    if (scheduleFilter === "upcoming") return m.status === "upcoming";
+    if (scheduleFilter === "today") return m.date === isoToday;
+    if (scheduleFilter === "completed") return m.status === "completed";
+    return true;
+  });
 
   const renderModal = (
     open: boolean,
@@ -774,7 +910,17 @@ export default function TeacherDashboard() {
 
         <div className="mt-auto px-2">
           <button
-            onClick={() => setShowScheduleModal(true)}
+            onClick={() => {
+              setScheduleForm({
+                studentId: "",
+                topic: "",
+                date: new Date().toISOString().split("T")[0],
+                time: "10:00 AM",
+                endTime: "10:50 AM",
+                meetLink: defaultMeetLink,
+              });
+              setShowScheduleModal(true);
+            }}
             className="w-full bg-[#005bbf] text-white py-3.5 px-6 rounded-full font-quicksand font-bold hover:bg-[#004493] transition-colors flex items-center justify-center gap-2 shadow-sm"
           >
             <span
@@ -857,6 +1003,14 @@ export default function TeacherDashboard() {
         <button
           onClick={() => {
             setMobileMenuOpen(false);
+            setScheduleForm({
+              studentId: "",
+              topic: "",
+              date: new Date().toISOString().split("T")[0],
+              time: "10:00 AM",
+              endTime: "10:50 AM",
+              meetLink: defaultMeetLink,
+            });
             setShowScheduleModal(true);
           }}
           className="w-full bg-[#005bbf] text-white py-3.5 rounded-full font-quicksand font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
@@ -973,7 +1127,7 @@ export default function TeacherDashboard() {
                     Welcome back, {session?.user?.name || "Teacher"}! 👋
                   </h2>
                   <p className="font-inter text-xs sm:text-sm md:text-base text-[#414754]">
-                    You have {students.filter((s) => s.status === "approved" || s.status === "active").length} authorized students and {meetings.length} meetings scheduled.
+                    You have {students.filter((s) => s.status === "approved" || s.status === "active").length} authorized students and {meetings.filter((m) => m.status === "upcoming").length} upcoming meetings.
                   </p>
                 </div>
                 <div className="text-left sm:text-right mt-2 sm:mt-0">
@@ -1052,74 +1206,101 @@ export default function TeacherDashboard() {
                         >
                           event
                         </span>
-                        Today&apos;s Schedule
+                        Today&apos;s Schedule ({todayMeetings.length})
                       </h3>
                       <button
-                        onClick={() => setShowScheduleModal(true)}
+                        onClick={() => {
+                          setScheduleForm({
+                            studentId: "",
+                            topic: "",
+                            date: new Date().toISOString().split("T")[0],
+                            time: "10:00 AM",
+                            endTime: "10:50 AM",
+                            meetLink: defaultMeetLink,
+                          });
+                          setShowScheduleModal(true);
+                        }}
                         className="flex items-center justify-center gap-1.5 bg-[#005bbf] text-white px-4 py-2 rounded-full font-quicksand font-bold text-xs hover:bg-[#004493] transition-colors w-full sm:w-auto"
                       >
                         <span className="material-symbols-outlined text-base">add</span>
                         <span>Schedule Meet</span>
                       </button>
                     </div>
+
                     <div className="space-y-3.5">
-                      {students.map((student) => (
-                        <div
-                          key={student.id}
-                          className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7] hover:border-[#005bbf]/30 transition-colors gap-3 sm:gap-4"
-                        >
-                          <div className="flex items-center gap-3.5">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 border-2 border-[#005bbf] bg-white relative shrink-0">
-                              <Image
-                                src={student.avatar}
-                                alt={student.name}
-                                width={48}
-                                height={48}
-                                unoptimized
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full rounded-full object-cover"
-                              />
+                      {todayMeetings.map((meet) => {
+                        const targetStudent = students.find(
+                          (s) => s.id === meet.studentId || s.email === meet.studentEmail
+                        );
+                        const studentAvatar = targetStudent?.avatar || meet.student?.image;
+
+                        return (
+                          <div
+                            key={meet.id}
+                            className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7] hover:border-[#005bbf]/30 transition-colors gap-3 sm:gap-4"
+                          >
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 border-2 border-[#005bbf] bg-white relative shrink-0">
+                                {studentAvatar ? (
+                                  <Image
+                                    src={studentAvatar}
+                                    alt={meet.studentName || "Student"}
+                                    width={48}
+                                    height={48}
+                                    unoptimized
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold font-quicksand">
+                                    {(meet.studentName || "S").charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c]">
+                                  {meet.topic}
+                                </h4>
+                                <p className="text-xs text-[#005bbf] font-semibold">
+                                  With: {meet.studentName || "General Class"}
+                                </p>
+                                <p className="text-[11px] sm:text-xs text-[#414754] flex items-center gap-1 mt-0.5 font-medium">
+                                  <span className="material-symbols-outlined text-xs">schedule</span>
+                                  <span>
+                                    {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
+                                  </span>
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <h4 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c]">
-                                {student.name}
-                              </h4>
-                              <button
-                                onClick={() => setSelectedStudent(student)}
-                                className="text-xs text-[#005bbf] hover:underline font-semibold block text-left"
+                            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-[#eae8e7]">
+                              <a
+                                href={getTeacherHostUrl(meet.meetLink)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-[#005bbf] text-white px-4 py-2 rounded-full font-quicksand font-bold text-xs hover:bg-[#004493] flex items-center justify-center gap-1.5 shadow-xs"
                               >
-                                View Profile
-                              </button>
-                              <p className="text-[11px] sm:text-xs text-[#414754] flex items-center gap-1 mt-0.5">
-                                <span className="material-symbols-outlined text-xs">schedule</span>
-                                <span>{student.time}</span>
-                              </p>
+                                <span className="material-symbols-outlined text-base">videocam</span>
+                                <span>Join as Host</span>
+                              </a>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-[#eae8e7]">
-                            <span className="bg-[#005bbf]/10 text-[#005bbf] px-3 py-1 rounded-full font-inter font-semibold text-xs">
-                              {student.subject}
-                            </span>
-                            <button
-                              onClick={() => openScheduleForStudent(student.id)}
-                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center hover:opacity-90 transition-opacity shadow-sm shrink-0"
-                              aria-label={`Schedule meeting for ${student.name}`}
-                            >
-                              <span
-                                className="material-symbols-outlined text-lg"
-                                style={{ fontVariationSettings: "'FILL' 1" }}
-                              >
-                                videocam
-                              </span>
-                            </button>
-                          </div>
+                        );
+                      })}
+
+                      {todayMeetings.length === 0 && (
+                        <div className="p-6 bg-[#f5f3f3] rounded-2xl text-center border border-dashed border-[#eae8e7]">
+                          <span className="material-symbols-outlined text-3xl text-[#727785] mb-1">
+                            event_available
+                          </span>
+                          <p className="text-xs text-[#727785] font-medium">
+                            No live sessions scheduled for today.
+                          </p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
-                    {/* 🌟 Dynamic Recent Activity Stream */}
                     <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-4 flex items-center gap-2">
                         <span className="material-symbols-outlined text-[#795900]">history</span>
@@ -1158,7 +1339,6 @@ export default function TeacherDashboard() {
                       </ul>
                     </div>
 
-                    {/* 📝 Overview Assignments Widget */}
                     <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
@@ -1205,7 +1385,6 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                {/* 📊 Real-Time Dynamic Student Progress Area */}
                 <div className="md:col-span-4 space-y-5 sm:space-y-6">
                   <div className="bg-white/80 backdrop-blur-md rounded-[20px] sm:rounded-[24px] p-4 sm:p-6 border border-white/40 shadow-[0_4px_12px_rgba(26,115,232,0.05)]">
                     <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c] mb-5 flex items-center gap-2">
@@ -1395,7 +1574,6 @@ export default function TeacherDashboard() {
                         </div>
                       </div>
 
-                      {/* 🟢 / 🔴 OUTSIDE CARD BUTTON */}
                       <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
                         <span className="text-[13px] font-semibold text-[#005bbf]">Click card for details</span>
                         {isApproved ? (
@@ -1429,7 +1607,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* 📝 ASSIGNMENTS VIEW */}
+          {/* ASSIGNMENTS VIEW */}
           {activeView === "assignments" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -1483,14 +1661,12 @@ export default function TeacherDashboard() {
                           {assignment.title}
                         </h3>
 
-                        {/* Optional Description */}
                         {assignment.description && (
                           <p className="text-xs text-[#414754] my-2 bg-[#f5f3f3] p-2.5 rounded-xl border border-[#eae8e7]/60">
                             {assignment.description}
                           </p>
                         )}
 
-                        {/* Optional Teacher Attachment Download */}
                         {assignment.attachmentUrl && (
                           <a
                             href={assignment.attachmentUrl}
@@ -1520,7 +1696,6 @@ export default function TeacherDashboard() {
                           </p>
                         </div>
 
-                        {/* Submitted Files List */}
                         {assignment.submissions && assignment.submissions.length > 0 && (
                           <div className="mt-3 pt-2 border-t border-[#eae8e7]">
                             <p className="text-xs font-bold text-[#1b1c1c] mb-1">Student Submissions:</p>
@@ -1568,7 +1743,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* 🏫 SECTIONS VIEW WITH CHAT & ADD STUDENT OPTION */}
+          {/* SECTIONS VIEW */}
           {activeView === "sections" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -1584,178 +1759,337 @@ export default function TeacherDashboard() {
                 </button>
               </div>
 
-              {sections.length === 0 ? (
-                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
-                  <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">school</span>
-                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Sections Created Yet</h3>
-                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
-                    Click &quot;Add Section&quot; to organize your classes and assign students.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {sections.map((section) => {
-                    const assignedStudents = students.filter(
-                      (s) => s.sectionId === section.id || s.sectionName === section.name
-                    );
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {sections.map((section) => {
+                  const assignedStudents = students.filter(
+                    (s) => s.sectionId === section.id || s.sectionName === section.name
+                  );
 
-                    return (
-                      <div
-                        key={section.id}
-                        className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all flex flex-col justify-between space-y-4"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#eae8e7]">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
-                                <span className="material-symbols-outlined text-[#005bbf]">school</span>
-                              </div>
-                              <div>
-                                <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
-                                  {section.name}
-                                </h3>
-                                <p className="text-xs text-[#727785]">
-                                  {assignedStudents.length} {assignedStudents.length === 1 ? "Student" : "Students"}
-                                </p>
-                              </div>
+                  return (
+                    <div
+                      key={section.id}
+                      className="bg-white rounded-[20px] p-5 sm:p-6 border border-[#eae8e7] hover:border-[#005bbf]/30 transition-all flex flex-col justify-between space-y-4"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#eae8e7]">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-[#005bbf]/10 flex items-center justify-center shrink-0">
+                              <span className="material-symbols-outlined text-[#005bbf]">school</span>
                             </div>
-                            <button
-                              onClick={() => handleDeleteSection(section.id)}
-                              className="text-[#ac3509] hover:bg-[#ac3509]/10 p-1.5 rounded-lg transition-colors"
-                              title="Delete Section"
-                            >
-                              <span className="material-symbols-outlined text-lg">delete</span>
-                            </button>
+                            <div>
+                              <h3 className="font-quicksand font-bold text-base sm:text-lg text-[#1b1c1c]">
+                                {section.name}
+                              </h3>
+                              <p className="text-xs text-[#727785]">
+                                {assignedStudents.length} {assignedStudents.length === 1 ? "Student" : "Students"}
+                              </p>
+                            </div>
                           </div>
-
-                          {/* List of assigned students */}
-                          <div className="space-y-2 mt-3">
-                            <p className="text-[11px] font-bold text-[#727785] uppercase tracking-wider">
-                              Assigned Students
-                            </p>
-                            {assignedStudents.length === 0 ? (
-                              <p className="text-xs text-[#727785] italic py-1">No students in this section yet.</p>
-                            ) : (
-                              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                                {assignedStudents.map((st) => (
-                                  <div
-                                    key={st.id}
-                                    className="flex items-center justify-between bg-[#f5f3f3] p-2 rounded-xl text-xs"
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <Image
-                                        src={st.avatar}
-                                        alt={st.name}
-                                        width={24}
-                                        height={24}
-                                        unoptimized
-                                        referrerPolicy="no-referrer"
-                                        className="w-6 h-6 rounded-full object-cover shrink-0"
-                                      />
-                                      <span className="font-semibold text-[#1b1c1c] truncate">{st.name}</span>
-                                    </div>
-                                    <button
-                                      onClick={() => handleAssignStudentToSection(st.email, null)}
-                                      className="text-[10px] text-[#ac3509] hover:underline font-bold shrink-0 ml-1"
-                                      title="Remove from section"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          <button
+                            onClick={() => handleDeleteSection(section.id)}
+                            className="text-[#ac3509] hover:bg-[#ac3509]/10 p-1.5 rounded-lg transition-colors"
+                            title="Delete Section"
+                          >
+                            <span className="material-symbols-outlined text-lg">delete</span>
+                          </button>
                         </div>
 
-                        {/* Action Buttons: Open Chat & Add Student */}
-                        <div className="space-y-2 pt-2 border-t border-[#eae8e7]">
-                          <button
-                            onClick={() => setChatSection(section)}
-                            className="w-full bg-[#128c7e] hover:bg-[#075e54] text-white py-2.5 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-2 transition-colors shadow-xs"
-                          >
-                            <span className="material-symbols-outlined text-base">forum</span>
-                            <span>Open WhatsApp Chat</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTargetSectionForAssign(section);
-                              setSelectedStudentToAssign("");
-                            }}
-                            className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-base">person_add</span>
-                            <span>Add Student to Section</span>
-                          </button>
+                        <div className="space-y-2 mt-3">
+                          <p className="text-[11px] font-bold text-[#727785] uppercase tracking-wider">
+                            Assigned Students
+                          </p>
+                          {assignedStudents.length === 0 ? (
+                            <p className="text-xs text-[#727785] italic py-1">No students in this section yet.</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                              {assignedStudents.map((st) => (
+                                <div
+                                  key={st.id}
+                                  className="flex items-center justify-between bg-[#f5f3f3] p-2 rounded-xl text-xs"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <Image
+                                      src={st.avatar}
+                                      alt={st.name}
+                                      width={24}
+                                      height={24}
+                                      unoptimized
+                                      referrerPolicy="no-referrer"
+                                      className="w-6 h-6 rounded-full object-cover shrink-0"
+                                    />
+                                    <span className="font-semibold text-[#1b1c1c] truncate">{st.name}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleAssignStudentToSection(st.email, null)}
+                                    className="text-[10px] text-[#ac3509] hover:underline font-bold shrink-0 ml-1"
+                                    title="Remove from section"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+
+                      <div className="space-y-2 pt-2 border-t border-[#eae8e7]">
+                        <button
+                          onClick={() => setChatSection(section)}
+                          className="w-full bg-[#005bbf] text-white py-2.5 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-2 hover:bg-[#004493] transition-colors shadow-xs"
+                        >
+                          <span className="material-symbols-outlined text-base">forum</span>
+                          <span>Open Section Chat</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setTargetSectionForAssign(section);
+                            setSelectedStudentToAssign("");
+                          }}
+                          className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-base">person_add</span>
+                          <span>Add Student to Section</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
           {/* SCHEDULE VIEW */}
           {activeView === "schedule" && (
-            <div className="space-y-5 sm:space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                  Scheduled Meetings
-                </h2>
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
+                    Live Meeting Schedule
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#727785] mt-1">
+                    Manage your Google Meet one-on-one sessions and virtual classes.
+                  </p>
+                </div>
+
                 <button
-                  onClick={() => setShowScheduleModal(true)}
-                  className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center gap-1.5 sm:gap-2"
+                  onClick={() => {
+                    setScheduleForm({
+                      studentId: "",
+                      topic: "",
+                      date: new Date().toISOString().split("T")[0],
+                      time: "10:00 AM",
+                      endTime: "10:50 AM",
+                      meetLink: defaultMeetLink,
+                    });
+                    setShowScheduleModal(true);
+                  }}
+                  className="bg-[#005bbf] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-xs sm:text-sm hover:bg-[#004493] flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all self-start sm:self-auto"
                 >
-                  <span className="material-symbols-outlined text-base">add</span>
-                  <span>New Meeting</span>
+                  <span className="material-symbols-outlined text-base">add_circle</span>
+                  <span>Schedule New Session</span>
                 </button>
               </div>
-              {meetings.length === 0 ? (
-                <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
-                  <span className="material-symbols-outlined text-4xl text-[#eae8e7] mb-2">
-                    event_busy
-                  </span>
-                  <p className="text-xs sm:text-sm text-[#727785]">No meetings scheduled yet.</p>
+
+              {/* Status Metric Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 sm:gap-4">
+                <div className="bg-white rounded-2xl p-4 border border-[#eae8e7] shadow-xs">
+                  <div className="flex items-center gap-2 text-[#005bbf] mb-1.5">
+                    <span className="material-symbols-outlined text-xl">event_upcoming</span>
+                    <span className="font-quicksand font-bold text-xs">Upcoming</span>
+                  </div>
+                  <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">
+                    {meetings.filter((m) => m.status === "upcoming").length}
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl p-4 border border-[#eae8e7] shadow-xs">
+                  <div className="flex items-center gap-2 text-[#ac3509] mb-1.5">
+                    <span className="material-symbols-outlined text-xl">today</span>
+                    <span className="font-quicksand font-bold text-xs">Today</span>
+                  </div>
+                  <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">
+                    {meetings.filter((m) => m.date === isoToday && m.status === "upcoming").length}
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl p-4 border border-[#eae8e7] shadow-xs">
+                  <div className="flex items-center gap-2 text-[#0f9d58] mb-1.5">
+                    <span className="material-symbols-outlined text-xl">task_alt</span>
+                    <span className="font-quicksand font-bold text-xs">Completed</span>
+                  </div>
+                  <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">
+                    {meetings.filter((m) => m.status === "completed").length}
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl p-4 border border-[#eae8e7] shadow-xs">
+                  <div className="flex items-center gap-2 text-[#727785] mb-1.5">
+                    <span className="material-symbols-outlined text-xl">calendar_month</span>
+                    <span className="font-quicksand font-bold text-xs">Total</span>
+                  </div>
+                  <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">
+                    {meetings.length}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-2 border-b border-[#eae8e7] pb-3 overflow-x-auto">
+                {(["upcoming", "today", "completed", "all"] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setScheduleFilter(filter)}
+                    className={`px-4 py-2 rounded-full font-quicksand font-bold text-xs capitalize transition-colors shrink-0 ${
+                      scheduleFilter === filter
+                        ? "bg-[#005bbf] text-white shadow-xs"
+                        : "bg-[#f5f3f3] text-[#414754] hover:bg-[#eae8e7]"
+                    }`}
+                  >
+                    {filter} ({
+                      filter === "upcoming"
+                        ? meetings.filter((m) => m.status === "upcoming").length
+                        : filter === "today"
+                        ? meetings.filter((m) => m.date === isoToday).length
+                        : filter === "completed"
+                        ? meetings.filter((m) => m.status === "completed").length
+                        : meetings.length
+                    })
+                  </button>
+                ))}
+              </div>
+
+              {/* Meetings List */}
+              {filteredMeetings.length === 0 ? (
+                <div className="bg-white rounded-3xl p-10 text-center border border-[#eae8e7] shadow-xs">
+                  <div className="w-14 h-14 rounded-full bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center mx-auto mb-3">
+                    <span className="material-symbols-outlined text-3xl">event_busy</span>
+                  </div>
+                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">
+                    No sessions found in &quot;{scheduleFilter}&quot;
+                  </h3>
+                  <p className="text-xs text-[#727785] mt-1 max-w mx-auto">
+                    Schedule a Google Meet session with your students to get started.
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {meetings.map((meet) => {
-                    const s = students.find((x) => x.id === meet.studentId);
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredMeetings.map((meet) => {
+                    const isCompleted = meet.status === "completed";
+                    const isToday = meet.date === isoToday;
+                    const studentAvatar = meet.student?.image || students.find((s) => s.id === meet.studentId || s.email === meet.studentEmail)?.avatar;
+
                     return (
                       <div
                         key={meet.id}
-                        className="bg-white rounded-2xl p-4 sm:p-5 border border-[#eae8e7] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4"
+                        className={`bg-white rounded-3xl p-5 border shadow-xs transition-all flex flex-col justify-between gap-4 ${
+                          isCompleted ? "opacity-70 border-[#eae8e7]" : isToday ? "border-[#005bbf] shadow-sm" : "border-[#eae8e7]"
+                        }`}
                       >
-                        <div className="flex items-center gap-3.5">
-                          {s && (
-                            <Image
-                              src={s.avatar}
-                              alt={s.name}
-                              width={48}
-                              height={48}
-                              unoptimized
-                              referrerPolicy="no-referrer"
-                              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
-                            />
-                          )}
-                          <div className="min-w-0">
-                            <h4 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c] truncate">{meet.topic}</h4>
-                            <p className="text-xs text-[#727785] truncate">
-                              {s?.name} • {meet.date} at {meet.time}
+                        <div>
+                          <div className="flex justify-between items-start mb-3">
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                isCompleted
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : isToday
+                                  ? "bg-[#005bbf]/10 text-[#005bbf]"
+                                  : "bg-[#f5f3f3] text-[#414754]"
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-xs">
+                                {isCompleted ? "check_circle" : isToday ? "notification_important" : "schedule"}
+                              </span>
+                              <span>{isCompleted ? "Completed" : isToday ? "Today's Session" : "Upcoming"}</span>
+                            </span>
+
+                            <button
+                              onClick={() => handleDeleteMeeting(meet.id)}
+                              className="text-[#727785] hover:text-[#ac3509] p-1 rounded-lg hover:bg-[#f5f3f3] transition-colors"
+                              title="Delete Session"
+                            >
+                              <span className="material-symbols-outlined text-base">delete</span>
+                            </button>
+                          </div>
+
+                          <h3 className={`font-quicksand font-bold text-base text-[#1b1c1c] ${isCompleted ? "line-through text-[#727785]" : ""}`}>
+                            {meet.topic}
+                          </h3>
+
+                          <div className="flex items-center gap-2.5 my-3 p-2 bg-[#f5f3f3] rounded-2xl">
+                            <div className="w-8 h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden shadow-2xs">
+                              {studentAvatar ? (
+                                <Image
+                                  src={studentAvatar}
+                                  alt={meet.studentName || "Student"}
+                                  width={32}
+                                  height={32}
+                                  unoptimized
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <span>{(meet.studentName || "S").charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-quicksand font-bold text-xs text-[#1b1c1c] truncate">
+                                {meet.studentName || "General Session"}
+                              </p>
+                              <p className="text-[10px] text-[#727785] truncate">
+                                {meet.studentEmail || "All Section Members"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs text-[#414754]">
+                            <p className="flex items-center gap-1.5 font-medium">
+                              <span className="material-symbols-outlined text-sm text-[#005bbf]">calendar_month</span>
+                              <span>{meet.date}</span>
+                            </p>
+                            <p className="flex items-center gap-1.5 font-medium">
+                              <span className="material-symbols-outlined text-sm text-[#005bbf]">schedule</span>
+                              <span>
+                                {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
+                              </span>
                             </p>
                           </div>
                         </div>
-                        <a
-                          href={meet.meetLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-[#005bbf] text-white px-4 sm:px-5 py-2 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493] flex items-center justify-center gap-1.5 w-full sm:w-auto"
-                        >
-                          <span className="material-symbols-outlined text-base">videocam</span>
-                          <span>Join Meet</span>
-                        </a>
+
+                        <div className="pt-3 border-t border-[#eae8e7] space-y-2">
+                          <a
+                            href={getTeacherHostUrl(meet.meetLink)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-2.5 rounded-xl font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+                          >
+                            <span className="material-symbols-outlined text-base">videocam</span>
+                            <span>Join as Host</span>
+                          </a>
+
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() =>
+                                handleUpdateMeetingStatus(
+                                  meet.id,
+                                  isCompleted ? "upcoming" : "completed"
+                                )
+                              }
+                              className="flex-1 py-1.5 bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] rounded-lg font-quicksand font-bold text-[11px] transition-colors"
+                            >
+                              {isCompleted ? "Mark Upcoming" : "Mark Completed"}
+                            </button>
+
+                            <button
+                              onClick={() => setEditingMeeting(meet)}
+                              className="px-3 py-1.5 border border-[#eae8e7] text-[#414754] hover:bg-[#f5f3f3] rounded-lg font-quicksand font-bold text-[11px] transition-colors flex items-center justify-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-sm">edit</span>
+                              <span>Edit</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
@@ -1766,161 +2100,172 @@ export default function TeacherDashboard() {
         </div>
       </main>
 
-      {/* Settings Modal */}
+      {/* 📅 Modal: Schedule Google Meet Session */}
       {renderModal(
-        showSettingsModal,
-        () => setShowSettingsModal(false),
-        "Dashboard Settings",
-        <div className="space-y-5 sm:space-y-6">
-          <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-base sm:text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
-              {userImage && !imageError ? (
-                <Image
-                  src={userImage}
-                  alt={userName}
-                  width={48}
-                  height={48}
-                  unoptimized
-                  referrerPolicy="no-referrer"
-                  onError={() => setImageError(true)}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span>{userInitial}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">{userName}</h4>
-              <p className="text-xs text-[#727785] truncate">{session?.user?.email || "teacher@happytoddles.com"}</p>
-              <span className="inline-block mt-1 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                Verified Instructor
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-[#414754]">Default Google Meet Link</label>
-            <input
-              type="url"
-              value={defaultMeetLink}
-              onChange={(e) => setDefaultMeetLink(e.target.value)}
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
-              placeholder="https://meet.google.com/..."
-            />
-            <p className="text-[11px] text-[#727785]">
-              This link will automatically pre-fill whenever you schedule a new meeting.
-            </p>
-          </div>
-
-          <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
-            <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
-
-            <label className="flex items-center justify-between cursor-pointer py-1">
-              <span className="text-xs text-[#414754] font-medium">Email Notifications</span>
-              <input
-                type="checkbox"
-                checked={emailAlerts}
-                onChange={(e) => setEmailAlerts(e.target.checked)}
-                className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
-              />
-            </label>
-
-            <label className="flex items-center justify-between cursor-pointer py-1">
-              <span className="text-xs text-[#414754] font-medium">Session Reminders</span>
-              <input
-                type="checkbox"
-                checked={sessionReminders}
-                onChange={(e) => setSessionReminders(e.target.checked)}
-                className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
-              />
-            </label>
-          </div>
-
-          <div className="pt-3 border-t border-[#eae8e7]">
-            <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
-            >
-              <span className="material-symbols-outlined text-base">logout</span>
-              <span>Sign Out</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Schedule Modal */}
-      {renderModal(showScheduleModal, () => setShowScheduleModal(false), "Schedule Google Meet", (
+        showScheduleModal,
+        () => setShowScheduleModal(false),
+        "Schedule Google Meet Session",
         <div className="space-y-4 sm:space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Student</label>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">
+              Assign to Student (Optional)
+            </label>
             <select
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] bg-white"
               value={scheduleForm.studentId}
               onChange={(e) => setScheduleForm({ ...scheduleForm, studentId: e.target.value })}
             >
-              <option value="">Select student</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
+              <option value="">All Students (General Session)</option>
+              {students
+                .filter((s) => s.status === "approved" || s.status === "active")
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.email})
+                  </option>
+                ))}
             </select>
           </div>
+
           <div>
-            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Topic</label>
+            <label className="block text-xs font-semibold text-[#414754] mb-1.5">Session Topic *</label>
             <input
               type="text"
-              placeholder="e.g. Reading Practice"
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              placeholder="e.g. Advanced Reading & Phonics"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
               value={scheduleForm.topic}
               onChange={(e) => setScheduleForm({ ...scheduleForm, topic: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Date</label>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Date *</label>
               <input
                 type="date"
-                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
                 value={scheduleForm.date}
                 onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Time</label>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Start Time *</label>
               <input
-                type="time"
-                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                type="text"
+                placeholder="10:00 AM"
+                className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
                 value={scheduleForm.time}
                 onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
               />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">End Time *</label>
+              <input
+                type="text"
+                placeholder="10:50 AM"
+                className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                value={scheduleForm.endTime}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, endTime: e.target.value })}
+              />
+            </div>
           </div>
+
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">
-              Google Meet Link
+              Google Meet Link *
             </label>
             <input
               type="url"
-              placeholder="https://meet.google.com/abc-defg-hij"
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              placeholder="https://meet.google.com/..."
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
               value={scheduleForm.meetLink}
               onChange={(e) => setScheduleForm({ ...scheduleForm, meetLink: e.target.value })}
             />
             <p className="text-[11px] text-[#727785] mt-1">
-              Paste your Google Meet link here. Only you can provide this.
+              Both you and the student will use this link. Students will wait in the lobby until you admit them.
             </p>
           </div>
+
           <button
             onClick={handleScheduleMeet}
-            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] transition-colors mt-2 text-xs sm:text-sm active:scale-95"
+            disabled={isScheduling}
+            className="w-full bg-[#005bbf] text-white py-3 sm:py-3.5 rounded-xl font-quicksand font-bold hover:bg-[#004493] transition-colors text-xs sm:text-sm active:scale-95 shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            Schedule Meeting
+            <span className="material-symbols-outlined text-base">
+              {isScheduling ? "sync" : "calendar_month"}
+            </span>
+            <span>{isScheduling ? "Publishing Session..." : "Publish Scheduled Session"}</span>
           </button>
         </div>
-      ))}
+      )}
 
-      {/* 📝 Add Assignment Modal */}
+      {/* ✏️ Modal: Edit / Reschedule Meeting */}
+      {renderModal(
+        !!editingMeeting,
+        () => setEditingMeeting(null),
+        "Edit Scheduled Session",
+        editingMeeting && (
+          <div className="space-y-4 sm:space-y-5">
+            <div>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Session Topic</label>
+              <input
+                type="text"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                value={editingMeeting.topic}
+                onChange={(e) => setEditingMeeting({ ...editingMeeting, topic: e.target.value })}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#414754] mb-1.5">Date</label>
+                <input
+                  type="date"
+                  className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                  value={editingMeeting.date}
+                  onChange={(e) => setEditingMeeting({ ...editingMeeting, date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#414754] mb-1.5">Start Time</label>
+                <input
+                  type="text"
+                  className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                  value={editingMeeting.time}
+                  onChange={(e) => setEditingMeeting({ ...editingMeeting, time: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#414754] mb-1.5">End Time</label>
+                <input
+                  type="text"
+                  className="w-full border border-[#eae8e7] rounded-xl px-3 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                  value={editingMeeting.endTime || ""}
+                  onChange={(e) => setEditingMeeting({ ...editingMeeting, endTime: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#414754] mb-1.5">Google Meet Link</label>
+              <input
+                type="url"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                value={editingMeeting.meetLink}
+                onChange={(e) => setEditingMeeting({ ...editingMeeting, meetLink: e.target.value })}
+              />
+            </div>
+
+            <button
+              onClick={handleSaveRescheduledMeeting}
+              className="w-full bg-[#005bbf] text-white py-3 rounded-xl font-quicksand font-bold hover:bg-[#004493] text-xs sm:text-sm active:scale-95 transition-transform"
+            >
+              Save Changes
+            </button>
+          </div>
+        )
+      )}
+
+      {/* Add Assignment Modal */}
       {renderModal(showAddAssignment, () => setShowAddAssignment(false), "Create New Assignment", (
         <div className="space-y-4 sm:space-y-5">
           <div>
@@ -1939,7 +2284,7 @@ export default function TeacherDashboard() {
             <textarea
               rows={3}
               placeholder="Add instructions, guidelines, or details for this assignment..."
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
               value={newAssignment.description}
               onChange={(e) => setNewAssignment({ ...newAssignment, description: e.target.value })}
             />
@@ -1961,7 +2306,7 @@ export default function TeacherDashboard() {
               <input
                 type="text"
                 placeholder="e.g. Reading, Math"
-                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
                 value={newAssignment.subject}
                 onChange={(e) => setNewAssignment({ ...newAssignment, subject: e.target.value })}
               />
@@ -1969,7 +2314,7 @@ export default function TeacherDashboard() {
             <div>
               <label className="block text-xs font-semibold text-[#414754] mb-1.5">Section</label>
               <select
-                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+                className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] bg-white"
                 value={newAssignment.section}
                 onChange={(e) => setNewAssignment({ ...newAssignment, section: e.target.value })}
               >
@@ -1983,13 +2328,12 @@ export default function TeacherDashboard() {
             </div>
           </div>
 
-          {/* Target Specific Student Dropdown */}
           <div>
             <label className="block text-xs font-semibold text-[#414754] mb-1.5">
               Assign To Specific Student (Optional)
             </label>
             <select
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] bg-white"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] bg-white"
               value={newAssignment.studentId}
               onChange={(e) => {
                 const selectedStudent = students.find((s) => s.id === e.target.value);
@@ -2016,7 +2360,7 @@ export default function TeacherDashboard() {
             <input
               type="text"
               placeholder="e.g. Tomorrow, Aug 12"
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
               value={newAssignment.dueDate}
               onChange={(e) => setNewAssignment({ ...newAssignment, dueDate: e.target.value })}
             />
@@ -2040,7 +2384,7 @@ export default function TeacherDashboard() {
             <input
               type="text"
               placeholder="e.g. Section C"
-              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf]"
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
               value={newSection.name}
               onChange={(e) => setNewSection({ ...newSection, name: e.target.value })}
             />
@@ -2098,112 +2442,41 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {/* 🟢 WHATSAPP-STYLE GROUP CHAT MODAL */}
+      {/* Section Chat Modal */}
       {renderModal(
         !!chatSection,
         () => setChatSection(null),
-        `Section Group Chat`,
+        `${chatSection?.name || "Section"} Group Chat`,
         chatSection && (
-          <div className="flex flex-col h-[520px] rounded-2xl overflow-hidden border border-[#eae8e7] -m-2 sm:-m-4 shadow-xl">
-            {/* WhatsApp Header */}
-            <div className="bg-[#075e54] text-white p-3.5 flex items-center justify-between shadow-md">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg">
-                  💬
-                </div>
-                <div>
-                  <h4 className="font-quicksand font-bold text-sm sm:text-base leading-tight">
-                    {chatSection.name}
-                  </h4>
-                  <p className="text-[11px] text-[#86c4a6] font-medium">
-                    {students.filter((s) => s.sectionId === chatSection.id || s.sectionName === chatSection.name).length + 1} group members (Teacher &amp; Students)
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* WhatsApp Chat Body */}
-            <div
-              className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#efeae2] relative"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.03) 1px, transparent 0)",
-                backgroundSize: "16px 16px",
-              }}
-            >
-              {chatMessages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className="bg-[#ffeecd] text-[#544214] text-xs px-3 py-1.5 rounded-lg shadow-xs mb-2">
-                    🔒 Messages in this section chat are private to your class.
-                  </div>
-                  <p className="text-xs text-[#727785] italic">No messages yet. Send a message to get started!</p>
-                </div>
-              ) : (
-                chatMessages.map((msg) => {
-                  const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
-                  const isTeacherMsg = msg.senderRole === "TEACHER" || msg.senderRole === "teacher";
-
-                  const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  });
-
-                  return (
+          <div className="flex flex-col h-[480px] bg-white rounded-2xl overflow-hidden border border-[#eae8e7]">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]">
+              {chatMessages.map((msg) => {
+                const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
+                return (
+                  <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                    <span className="text-[10px] text-[#727785] mb-0.5 px-1 font-semibold">
+                      {msg.senderName} ({msg.senderRole})
+                    </span>
                     <div
-                      key={msg.id}
-                      className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}
+                      className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs ${
+                        isMe
+                          ? "bg-[#005bbf] text-white rounded-tr-none"
+                          : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                      }`}
                     >
-                      {!isMe && (
-                        <div className="w-7 h-7 rounded-full bg-[#075e54] text-white flex items-center justify-center font-bold text-[10px] shrink-0 overflow-hidden shadow-2xs">
-                          {msg.senderAvatar ? (
-                            <Image
-                              src={msg.senderAvatar}
-                              alt={msg.senderName}
-                              width={28}
-                              height={28}
-                              unoptimized
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <span>{msg.senderName.charAt(0).toUpperCase()}</span>
-                          )}
-                        </div>
-                      )}
-
-                      <div
-                        className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-xs relative shadow-xs ${
-                          isMe
-                            ? "bg-[#d9fdd3] text-[#111b21] rounded-tr-none"
-                            : "bg-white text-[#111b21] rounded-tl-none border border-[#e2e8f0]"
-                        }`}
-                      >
-                        {!isMe && (
-                          <p className="font-bold text-[11px] mb-0.5 text-[#075e54]">
-                            {msg.senderName}{" "}
-                            {isTeacherMsg ? "👨‍🏫 (Teacher)" : "🎓"}
-                          </p>
-                        )}
-                        <p className="whitespace-pre-wrap break-words leading-relaxed text-[12px] sm:text-xs">
-                          {msg.text}
-                        </p>
-                        <div className="text-[9px] text-[#667781] text-right mt-1 font-medium leading-none">
-                          {formattedTime}
-                        </div>
-                      </div>
+                      {msg.text}
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                );
+              })}
               <div ref={chatEndRef} />
             </div>
 
-            {/* WhatsApp Input Footer */}
-            <div className="bg-[#f0f2f5] p-2.5 flex items-center gap-2 border-t border-[#e2e8f0]">
+            <div className="p-3 border-t border-[#eae8e7] flex items-center gap-2">
               <input
                 type="text"
                 placeholder="Type a message..."
-                className="flex-1 bg-white border border-[#e2e8f0] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#075e54]"
+                className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
                 value={newMessageText}
                 onChange={(e) => setNewMessageText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
@@ -2211,9 +2484,9 @@ export default function TeacherDashboard() {
               <button
                 onClick={handleSendMessage}
                 disabled={!newMessageText.trim()}
-                className="w-10 h-10 rounded-full bg-[#128c7e] hover:bg-[#075e54] text-white flex items-center justify-center transition-colors shadow-xs disabled:opacity-40 shrink-0"
+                className="bg-[#005bbf] text-white px-5 py-2.5 rounded-full text-xs font-quicksand font-bold hover:bg-[#004493] transition-colors"
               >
-                <span className="material-symbols-outlined text-lg">send</span>
+                Send
               </button>
             </div>
           </div>
@@ -2287,6 +2560,57 @@ export default function TeacherDashboard() {
             </div>
           </div>
         )
+      )}
+
+      {/* Settings Modal */}
+      {renderModal(
+        showSettingsModal,
+        () => setShowSettingsModal(false),
+        "Dashboard Settings",
+        <div className="space-y-5 sm:space-y-6">
+          <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-base sm:text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
+              {userImage && !imageError ? (
+                <Image
+                  src={userImage}
+                  alt={userName}
+                  width={48}
+                  height={48}
+                  unoptimized
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageError(true)}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{userInitial}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">{userName}</h4>
+              <p className="text-xs text-[#727785] truncate">{session?.user?.email || "teacher@happytoddles.com"}</p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-[#414754]">Default Google Meet Link</label>
+            <input
+              type="url"
+              value={defaultMeetLink}
+              onChange={(e) => setDefaultMeetLink(e.target.value)}
+              className="w-full border border-[#eae8e7] rounded-xl px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-[#eae8e7]">
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
+            >
+              <span className="material-symbols-outlined text-base">logout</span>
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

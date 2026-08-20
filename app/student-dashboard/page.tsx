@@ -46,18 +46,17 @@ type Classmate = {
   role?: string;
 };
 
-type ClassItem = {
+type Meeting = {
   id: string;
-  subject: string;
-  title: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  studentEmail?: string | null;
+  topic: string;
   date: string;
-  month: string;
   time: string;
-  teacher: string;
-  color: string;
-  textColor: string;
-  tagColor: string;
-  tagTextColor: string;
+  endTime?: string | null;
+  meetLink: string;
+  status: "upcoming" | "completed" | "cancelled";
 };
 
 type Message = {
@@ -92,6 +91,9 @@ export default function StudentDashboard() {
   // Real Database Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
+  // 📅 Real Database Scheduled Meetings State
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+
   // Student File Attachments State
   const [studentFiles, setStudentFiles] = useState<{ [key: string]: File | null }>({});
   const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export default function StudentDashboard() {
     {
       id: "2",
       title: "Class Reminder",
-      desc: "Advanced Reading starts at 10:00 AM.",
+      desc: "Live learning session scheduled. Check Upcoming Classes.",
       time: "1 hour ago",
       read: false,
     },
@@ -173,6 +175,43 @@ export default function StudentDashboard() {
       checkApproval();
     } else if (status === "unauthenticated") {
       setApprovalStatus("pending");
+    }
+  }, [status, session]);
+
+  // 🔄 Fetch Scheduled Meetings from Database (Polls every 5s)
+  useEffect(() => {
+    async function fetchMeetings() {
+      try {
+        const res = await fetch("/api/meetings");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.meetings) {
+            const currentStudentId = (session?.user as any)?.id;
+            const currentStudentEmail = session?.user?.email?.toLowerCase();
+
+            const myMeetings = data.meetings.filter((m: Meeting) => {
+              if (m.status !== "upcoming") return false;
+              if (!m.studentId && !m.studentEmail) return true; // General class session
+              const matchesId = m.studentId && m.studentId === currentStudentId;
+              const matchesEmail =
+                m.studentEmail &&
+                currentStudentEmail &&
+                m.studentEmail.toLowerCase() === currentStudentEmail;
+              return matchesId || matchesEmail;
+            });
+
+            setMeetings(myMeetings);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch meetings for student:", err);
+      }
+    }
+
+    if (status === "authenticated") {
+      fetchMeetings();
+      const interval = setInterval(fetchMeetings, 5000);
+      return () => clearInterval(interval);
     }
   }, [status, session]);
 
@@ -360,35 +399,6 @@ export default function StudentDashboard() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const [classes] = useState<ClassItem[]>([
-    {
-      id: "1",
-      subject: "Reading",
-      title: "Advanced Reading - Section A",
-      date: "12",
-      month: "Oct",
-      time: "10:00 AM - 10:45 AM",
-      teacher: "Mr. David",
-      color: "bg-[#d8e2ff]",
-      textColor: "text-[#005bbf]",
-      tagColor: "bg-[#ffdfa0]",
-      tagTextColor: "text-[#261a00]",
-    },
-    {
-      id: "2",
-      subject: "Math",
-      title: "Intro to Numbers - Group 2",
-      date: "14",
-      month: "Oct",
-      time: "2:30 PM - 3:15 PM",
-      teacher: "Ms. Sarah",
-      color: "bg-[#ffdbd0]",
-      textColor: "text-[#3a0a00]",
-      tagColor: "bg-[#d8e2ff]",
-      tagTextColor: "text-[#001a41]",
-    },
-  ]);
-
   const [messages] = useState<Message[]>([
     {
       id: "1",
@@ -410,6 +420,18 @@ export default function StudentDashboard() {
     { id: "tutors" as const, icon: "face", label: "My Tutors" },
     { id: "resources" as const, icon: "library_books", label: "Resources" },
   ];
+
+  // Helper to format meeting date for calendar badge
+  const parseMeetingDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr + "T00:00:00");
+      const month = d.toLocaleString("en-US", { month: "short" });
+      const day = d.getDate();
+      return { month, day };
+    } catch {
+      return { month: "Date", day: dateStr };
+    }
+  };
 
   const renderModal = (
     open: boolean,
@@ -922,43 +944,73 @@ export default function StudentDashboard() {
               </div>
             </div>
 
+            {/* 📅 DYNAMIC DATABASE-BACKED UPCOMING CLASSES */}
             <div className="md:col-span-7 bg-white rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c]">
-                  Upcoming Classes
+                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#005bbf]">calendar_month</span>
+                  Upcoming Live Classes ({meetings.length})
                 </h3>
               </div>
-              <div className="flex flex-col gap-4">
-                {classes.map((cls) => (
-                  <div
-                    key={cls.id}
-                    className="flex items-center gap-4 p-4 rounded-2xl border border-[#e4e2e1] hover:border-[#005bbf]/30 hover:bg-[#fbf9f8] transition-colors cursor-pointer group"
-                  >
-                    <div
-                      className={`flex flex-col items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-xl font-quicksand shrink-0 ${cls.color} ${cls.textColor}`}
-                    >
-                      <span className="text-[10px] sm:text-xs font-bold uppercase">{cls.month}</span>
-                      <span className="text-lg sm:text-xl font-bold">{cls.date}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`px-2 py-0.5 ${cls.tagColor} ${cls.tagTextColor} text-[10px] font-bold rounded-md uppercase tracking-wide`}
+
+              {meetings.length === 0 ? (
+                <div className="p-8 bg-[#f5f3f3] rounded-2xl text-center border border-dashed border-[#eae8e7]">
+                  <span className="material-symbols-outlined text-3xl text-[#727785] mb-1">
+                    event_available
+                  </span>
+                  <p className="text-xs text-[#727785] font-medium">
+                    No upcoming live classes scheduled by your teacher.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {meetings.map((meet) => {
+                    const { month, day } = parseMeetingDate(meet.date);
+
+                    return (
+                      <div
+                        key={meet.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border border-[#e4e2e1] hover:border-[#005bbf]/40 hover:bg-[#fbf9f8] transition-all gap-4 group"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="flex flex-col items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl font-quicksand shrink-0 bg-[#d8e2ff] text-[#005bbf] shadow-2xs">
+                            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+                              {month}
+                            </span>
+                            <span className="text-lg sm:text-xl font-bold">{day}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold rounded-md uppercase tracking-wide">
+                                Live Class
+                              </span>
+                              <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] group-hover:text-[#005bbf] transition-colors truncate">
+                                {meet.topic}
+                              </h4>
+                            </div>
+                            <p className="text-xs sm:text-sm text-[#414754] flex items-center gap-1 font-medium">
+                              <span className="material-symbols-outlined text-[15px] text-[#005bbf]">schedule</span>
+                              <span>
+                                {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <a
+                          href={meet.meetLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-[#005bbf] hover:bg-[#004493] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 shrink-0"
                         >
-                          {cls.subject}
-                        </span>
-                        <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] group-hover:text-[#005bbf] transition-colors truncate">
-                          {cls.title}
-                        </h4>
+                          <span className="material-symbols-outlined text-base">videocam</span>
+                          <span>Ask to Join Meet</span>
+                        </a>
                       </div>
-                      <p className="text-xs sm:text-sm text-[#414754] flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[14px]">schedule</span>
-                        {cls.time}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-5 bg-[#f5f3f3] rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">

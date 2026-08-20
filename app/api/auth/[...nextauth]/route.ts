@@ -10,12 +10,10 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      allowDangerousEmailAccountLinking: true, // 👈 Prevents OAuth account collision errors
+      allowDangerousEmailAccountLinking: true,
       authorization: {
         params: {
           prompt: "select_account",
-          access_type: "offline",
-          response_type: "code",
         },
       },
     }),
@@ -38,7 +36,7 @@ export const authOptions: NextAuthOptions = {
         token.isApproved = true;
       } else {
         token.role = "STUDENT";
-        
+
         if (currentEmail) {
           try {
             const dbUser = await prisma.user.findFirst({
