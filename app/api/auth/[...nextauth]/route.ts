@@ -5,13 +5,15 @@ import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
+  debug: process.env.NODE_ENV === "development",
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      allowDangerousEmailAccountLinking: true, // 👈 Prevents OAuth account collision errors
       authorization: {
         params: {
-          prompt: "select_account", // Forces Google account selector screen
+          prompt: "select_account",
           access_type: "offline",
           response_type: "code",
         },
@@ -22,6 +24,11 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
+    async signIn({ user }) {
+      if (!user?.email) return false;
+      return true;
+    },
+
     async jwt({ token, user }) {
       const allowedTeacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
       const currentEmail = (user?.email || token?.email)?.trim().toLowerCase();
@@ -31,42 +38,63 @@ export const authOptions: NextAuthOptions = {
         token.isApproved = true;
       } else {
         token.role = "STUDENT";
+        
         if (currentEmail) {
-          const dbUser = await prisma.user.findFirst({
-            where: { email: { equals: currentEmail, mode: "insensitive" } },
-          });
-          token.isApproved = dbUser?.status === "APPROVED";
+          try {
+            const dbUser = await prisma.user.findFirst({
+              where: { email: { equals: currentEmail, mode: "insensitive" } },
+              select: { id: true, status: true, role: true },
+            });
+
+            if (dbUser) {
+              token.id = dbUser.id;
+              const statusStr = (dbUser.status || "").toLowerCase();
+              token.isApproved = statusStr === "approved" || statusStr === "active";
+            }
+          } catch (err) {
+            console.error("Database lookup warning inside jwt callback:", err);
+          }
         }
       }
+
+      if (user?.id) {
+        token.id = user.id;
+      }
+
       return token;
     },
+
     async session({ session, token }) {
       if (session.user) {
-        session.user.email = token.email;
-        session.user.image = token.picture as string;
-        (session.user as any).role = token.role;
-        (session.user as any).isApproved = token.isApproved;
+        (session.user as any).id = token.id || token.sub;
+        (session.user as any).role = token.role || "STUDENT";
+        (session.user as any).isApproved = token.isApproved || false;
       }
       return session;
     },
   },
-  // 💡 GUARANTEE: Fires immediately when a deleted student signs back in, marking them PENDING in Supabase
+
   events: {
     async createUser({ user }) {
       const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
       const userEmail = user.email?.trim().toLowerCase();
 
       if (userEmail && userEmail !== teacherEmail) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            role: "STUDENT",
-            status: "PENDING",
-          },
-        });
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              role: "STUDENT",
+              status: "pending",
+            },
+          });
+        } catch (err) {
+          console.error("Error setting initial student status:", err);
+        }
       }
     },
   },
+
   pages: {
     signIn: "/login",
     error: "/login",

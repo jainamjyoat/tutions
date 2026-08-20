@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { uploadAssignmentFile } from "@/lib/upload";
@@ -46,6 +46,17 @@ type Section = {
   name: string;
   groups?: number;
   students?: number;
+};
+
+type SectionMessage = {
+  id: string;
+  sectionId: string;
+  senderEmail: string;
+  senderName: string;
+  senderRole: string;
+  senderAvatar?: string | null;
+  text: string;
+  createdAt: string;
 };
 
 type Invite = {
@@ -122,6 +133,12 @@ export default function TeacherDashboard() {
   const [targetSectionForAssign, setTargetSectionForAssign] = useState<Section | null>(null);
   const [selectedStudentToAssign, setSelectedStudentToAssign] = useState<string>("");
 
+  // Section Group Chat State
+  const [chatSection, setChatSection] = useState<Section | null>(null);
+  const [chatMessages, setChatMessages] = useState<SectionMessage[]>([]);
+  const [newMessageText, setNewMessageText] = useState("");
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
   // Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -134,6 +151,62 @@ export default function TeacherDashboard() {
     time: "",
     meetLink: "",
   });
+
+  // 🔄 Auto-scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  // 🔄 Fetch section chat messages & poll
+  useEffect(() => {
+    if (!chatSection) return;
+
+    async function fetchChatMessages() {
+      try {
+        const res = await fetch(`/api/sections/messages?sectionId=${chatSection?.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setChatMessages(data.messages || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch section chat messages:", err);
+      }
+    }
+
+    fetchChatMessages();
+    const interval = setInterval(fetchChatMessages, 3000);
+    return () => clearInterval(interval);
+  }, [chatSection]);
+
+  // 💬 Send Section Message
+  const handleSendMessage = async () => {
+    if (!newMessageText.trim() || !chatSection) return;
+
+    const messageText = newMessageText.trim();
+    setNewMessageText("");
+
+    try {
+      const res = await fetch("/api/sections/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId: chatSection.id,
+          text: messageText,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setChatMessages((prev) => [...prev, data.message]);
+        }
+      } else {
+        alert("Failed to send message.");
+      }
+    } catch (err) {
+      console.error("Failed to send message:", err);
+    }
+  };
 
   // 🔄 Fetch sections from database on mount
   useEffect(() => {
@@ -359,7 +432,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Create New Assignment with File Upload & Description
+  // Create New Assignment
   const handleAddAssignment = async () => {
     if (!newAssignment.title || !newAssignment.title.trim()) {
       alert("Please enter an assignment title.");
@@ -548,7 +621,7 @@ export default function TeacherDashboard() {
     setScheduleForm({ studentId: "", topic: "", date: "", time: "", meetLink: defaultMeetLink });
   };
 
-  // ➕ Create Section in Database
+  // ➕ Create Section
   const handleAddSection = async () => {
     if (!newSection.name || !newSection.name.trim()) return;
 
@@ -570,11 +643,10 @@ export default function TeacherDashboard() {
       }
     } catch (err) {
       console.error("Failed to create section:", err);
-      alert("Network error: Could not create section.");
     }
   };
 
-  // 🗑️ Delete Section from Database
+  // 🗑️ Delete Section
   const handleDeleteSection = async (id: string) => {
     try {
       const res = await fetch("/api/sections", {
@@ -585,8 +657,6 @@ export default function TeacherDashboard() {
 
       if (res.ok) {
         setSections((prev) => prev.filter((s) => s.id !== id));
-      } else {
-        alert("Failed to delete section.");
       }
     } catch (err) {
       console.error("Failed to delete section:", err);
@@ -941,6 +1011,7 @@ export default function TeacherDashboard() {
                             width={36}
                             height={36}
                             unoptimized
+                            referrerPolicy="no-referrer"
                             className="w-9 h-9 rounded-full object-cover shrink-0 border border-[#005bbf]"
                           />
                           <div className="min-w-0">
@@ -1005,6 +1076,7 @@ export default function TeacherDashboard() {
                                 width={48}
                                 height={48}
                                 unoptimized
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full rounded-full object-cover"
                               />
                             </div>
@@ -1212,6 +1284,7 @@ export default function TeacherDashboard() {
                           width={48}
                           height={48}
                           unoptimized
+                          referrerPolicy="no-referrer"
                           className="w-12 h-12 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                         />
                         <div className="min-w-0 flex-1">
@@ -1287,6 +1360,7 @@ export default function TeacherDashboard() {
                             width={56}
                             height={56}
                             unoptimized
+                            referrerPolicy="no-referrer"
                             className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                           />
                           <div className="min-w-0 flex-1">
@@ -1494,7 +1568,7 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* 🏫 SECTIONS VIEW WITH ADD STUDENT OPTION */}
+          {/* 🏫 SECTIONS VIEW WITH CHAT & ADD STUDENT OPTION */}
           {activeView === "sections" && (
             <div className="space-y-5 sm:space-y-6">
               <div className="flex justify-between items-center">
@@ -1575,6 +1649,7 @@ export default function TeacherDashboard() {
                                         width={24}
                                         height={24}
                                         unoptimized
+                                        referrerPolicy="no-referrer"
                                         className="w-6 h-6 rounded-full object-cover shrink-0"
                                       />
                                       <span className="font-semibold text-[#1b1c1c] truncate">{st.name}</span>
@@ -1593,17 +1668,27 @@ export default function TeacherDashboard() {
                           </div>
                         </div>
 
-                        {/* ➕ Button to Add Student to this Section */}
-                        <button
-                          onClick={() => {
-                            setTargetSectionForAssign(section);
-                            setSelectedStudentToAssign("");
-                          }}
-                          className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2.5 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-base">person_add</span>
-                          <span>Add Student to Section</span>
-                        </button>
+                        {/* Action Buttons: Open Chat & Add Student */}
+                        <div className="space-y-2 pt-2 border-t border-[#eae8e7]">
+                          <button
+                            onClick={() => setChatSection(section)}
+                            className="w-full bg-[#128c7e] hover:bg-[#075e54] text-white py-2.5 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-2 transition-colors shadow-xs"
+                          >
+                            <span className="material-symbols-outlined text-base">forum</span>
+                            <span>Open WhatsApp Chat</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setTargetSectionForAssign(section);
+                              setSelectedStudentToAssign("");
+                            }}
+                            className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-base">person_add</span>
+                            <span>Add Student to Section</span>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1651,6 +1736,7 @@ export default function TeacherDashboard() {
                               width={48}
                               height={48}
                               unoptimized
+                              referrerPolicy="no-referrer"
                               className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
                             />
                           )}
@@ -2012,6 +2098,128 @@ export default function TeacherDashboard() {
         </div>
       )}
 
+      {/* 🟢 WHATSAPP-STYLE GROUP CHAT MODAL */}
+      {renderModal(
+        !!chatSection,
+        () => setChatSection(null),
+        `Section Group Chat`,
+        chatSection && (
+          <div className="flex flex-col h-[520px] rounded-2xl overflow-hidden border border-[#eae8e7] -m-2 sm:-m-4 shadow-xl">
+            {/* WhatsApp Header */}
+            <div className="bg-[#075e54] text-white p-3.5 flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg">
+                  💬
+                </div>
+                <div>
+                  <h4 className="font-quicksand font-bold text-sm sm:text-base leading-tight">
+                    {chatSection.name}
+                  </h4>
+                  <p className="text-[11px] text-[#86c4a6] font-medium">
+                    {students.filter((s) => s.sectionId === chatSection.id || s.sectionName === chatSection.name).length + 1} group members (Teacher &amp; Students)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* WhatsApp Chat Body */}
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#efeae2] relative"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.03) 1px, transparent 0)",
+                backgroundSize: "16px 16px",
+              }}
+            >
+              {chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="bg-[#ffeecd] text-[#544214] text-xs px-3 py-1.5 rounded-lg shadow-xs mb-2">
+                    🔒 Messages in this section chat are private to your class.
+                  </div>
+                  <p className="text-xs text-[#727785] italic">No messages yet. Send a message to get started!</p>
+                </div>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
+                  const isTeacherMsg = msg.senderRole === "TEACHER" || msg.senderRole === "teacher";
+
+                  const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}
+                    >
+                      {!isMe && (
+                        <div className="w-7 h-7 rounded-full bg-[#075e54] text-white flex items-center justify-center font-bold text-[10px] shrink-0 overflow-hidden shadow-2xs">
+                          {msg.senderAvatar ? (
+                            <Image
+                              src={msg.senderAvatar}
+                              alt={msg.senderName}
+                              width={28}
+                              height={28}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span>{msg.senderName.charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                      )}
+
+                      <div
+                        className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-xs relative shadow-xs ${
+                          isMe
+                            ? "bg-[#d9fdd3] text-[#111b21] rounded-tr-none"
+                            : "bg-white text-[#111b21] rounded-tl-none border border-[#e2e8f0]"
+                        }`}
+                      >
+                        {!isMe && (
+                          <p className="font-bold text-[11px] mb-0.5 text-[#075e54]">
+                            {msg.senderName}{" "}
+                            {isTeacherMsg ? "👨‍🏫 (Teacher)" : "🎓"}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap break-words leading-relaxed text-[12px] sm:text-xs">
+                          {msg.text}
+                        </p>
+                        <div className="text-[9px] text-[#667781] text-right mt-1 font-medium leading-none">
+                          {formattedTime}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* WhatsApp Input Footer */}
+            <div className="bg-[#f0f2f5] p-2.5 flex items-center gap-2 border-t border-[#e2e8f0]">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                className="flex-1 bg-white border border-[#e2e8f0] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#075e54]"
+                value={newMessageText}
+                onChange={(e) => setNewMessageText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!newMessageText.trim()}
+                className="w-10 h-10 rounded-full bg-[#128c7e] hover:bg-[#075e54] text-white flex items-center justify-center transition-colors shadow-xs disabled:opacity-40 shrink-0"
+              >
+                <span className="material-symbols-outlined text-lg">send</span>
+              </button>
+            </div>
+          </div>
+        )
+      )}
+
       {/* Student Detail Modal */}
       {renderModal(
         !!selectedStudent,
@@ -2026,6 +2234,7 @@ export default function TeacherDashboard() {
                 width={64}
                 height={64}
                 unoptimized
+                referrerPolicy="no-referrer"
                 className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
               />
               <div className="min-w-0">

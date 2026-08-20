@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { uploadAssignmentFile } from "@/lib/upload";
@@ -19,11 +19,31 @@ type Assignment = {
   status: "active" | "completed";
 };
 
+type SectionMessage = {
+  id: string;
+  sectionId: string;
+  senderEmail: string;
+  senderName: string;
+  senderRole: string;
+  senderAvatar?: string | null;
+  text: string;
+  seenBy?: string[];
+  createdAt: string;
+};
+
+type TyperUser = {
+  id: string;
+  userEmail: string;
+  userName: string;
+  userAvatar?: string | null;
+};
+
 type Classmate = {
   id: string;
   name: string;
-  avatar: string;
+  avatar?: string | null;
   email: string;
+  role?: string;
 };
 
 type ClassItem = {
@@ -61,6 +81,7 @@ export default function StudentDashboard() {
   const { data: session, status } = useSession();
   const [approvalStatus, setApprovalStatus] = useState<"loading" | "pending" | "approved">("loading");
   const [assignedSection, setAssignedSection] = useState<string | null>(null);
+  const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
   const [classmates, setClassmates] = useState<Classmate[]>([]);
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -71,9 +92,16 @@ export default function StudentDashboard() {
   // Real Database Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  // Student File Attachments State (mapped by assignment ID)
+  // Student File Attachments State
   const [studentFiles, setStudentFiles] = useState<{ [key: string]: File | null }>({});
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  // Section Group Chat & Typing State
+  const [sectionChatMessages, setSectionChatMessages] = useState<SectionMessage[]>([]);
+  const [studentChatInput, setStudentChatInput] = useState("");
+  const [activeTypers, setActiveTypers] = useState<TyperUser[]>([]);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const lastTypingPingRef = useRef<number>(0);
 
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -99,6 +127,11 @@ export default function StudentDashboard() {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [soundEffects, setSoundEffects] = useState(true);
 
+  // 🔄 Auto-scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [sectionChatMessages, activeTypers]);
+
   // Auto-redirect Teacher OR Check Student Approval Status & Section on mount
   useEffect(() => {
     const userRole = (session?.user as any)?.role;
@@ -120,7 +153,10 @@ export default function StudentDashboard() {
             setApprovalStatus("approved");
 
             const secName = data.student.section?.name || data.student.sectionName || null;
+            const secId = data.student.sectionId || data.student.section?.id || null;
+
             setAssignedSection(secName);
+            setCurrentSectionId(secId);
           } else {
             setApprovalStatus("pending");
           }
@@ -139,6 +175,85 @@ export default function StudentDashboard() {
       setApprovalStatus("pending");
     }
   }, [status, session]);
+
+  // 🔄 Fetch Section Group Chat Messages & Typers (Polls every 2.5s)
+  useEffect(() => {
+    if (!currentSectionId) return;
+
+    async function fetchChatData() {
+      try {
+        const [msgRes, typingRes] = await Promise.all([
+          fetch(`/api/sections/messages?sectionId=${currentSectionId}`),
+          fetch(`/api/sections/typing?sectionId=${currentSectionId}`),
+        ]);
+
+        if (msgRes.ok) {
+          const msgData = await msgRes.json();
+          setSectionChatMessages(msgData.messages || []);
+        }
+
+        if (typingRes.ok) {
+          const typingData = await typingRes.json();
+          setActiveTypers(typingData.typers || []);
+        }
+      } catch (err) {
+        console.error("Failed to load section chat data:", err);
+      }
+    }
+
+    if (status === "authenticated") {
+      fetchChatData();
+      const interval = setInterval(fetchChatData, 2500);
+      return () => clearInterval(interval);
+    }
+  }, [currentSectionId, status]);
+
+  // ✍️ Trigger Typing Ping when Student is typing
+  const handleTypingInput = (text: string) => {
+    setStudentChatInput(text);
+
+    if (!currentSectionId) return;
+
+    const now = Date.now();
+    if (now - lastTypingPingRef.current > 2000) {
+      lastTypingPingRef.current = now;
+      fetch("/api/sections/typing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionId: currentSectionId }),
+      }).catch((err) => console.error("Typing ping failed:", err));
+    }
+  };
+
+  // 💬 Send Student Section Message
+  const handleSendStudentMessage = async () => {
+    if (!studentChatInput.trim() || !currentSectionId) return;
+
+    const textToSend = studentChatInput.trim();
+    setStudentChatInput("");
+
+    try {
+      const res = await fetch("/api/sections/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId: currentSectionId,
+          text: textToSend,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setSectionChatMessages((prev) => [...prev, data.message]);
+        }
+      } else {
+        alert("Failed to send message.");
+      }
+    } catch (err) {
+      console.error("Failed to post message:", err);
+    }
+  };
 
   // 🔄 Fetch Assignments from Database
   useEffect(() => {
@@ -180,12 +295,10 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // Handle student file input selection
   const handleFileChange = (assignmentId: string, file: File | null) => {
     setStudentFiles((prev) => ({ ...prev, [assignmentId]: file }));
   };
 
-  // Toggle Assignment Completion in Database
   const handleToggleAssignment = async (id: string, currentStatus: "active" | "completed") => {
     const nextStatus = currentStatus === "active" ? "completed" : "active";
     let uploadedUrl: string | null = null;
@@ -290,7 +403,6 @@ export default function StudentDashboard() {
 
   const [dailyProgress, setDailyProgress] = useState(65);
 
-  // Updated Navigation Items: Replaced "achievements" with "sections"
   const navItems = [
     { id: "learning" as const, icon: "school", label: "My Learning" },
     { id: "assignments" as const, icon: "assignment", label: "Assignments" },
@@ -346,7 +458,7 @@ export default function StudentDashboard() {
 
           <div className="space-y-2">
             <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
-              Account Approval Pending ⏳
+              Account Approval Pending
             </h2>
             <p className="text-xs sm:text-sm text-[#414754] leading-relaxed">
               Hi <strong className="text-[#1b1c1c]">{firstName}</strong>! Your account (
@@ -360,16 +472,18 @@ export default function StudentDashboard() {
           <div className="pt-2 space-y-3">
             <button
               onClick={() => window.location.reload()}
-              className="w-full bg-[#005bbf] hover:bg-[#004493] text-white font-quicksand font-bold py-3 rounded-xl text-xs sm:text-sm transition-all shadow-sm active:scale-95"
+              className="w-full bg-[#005bbf] hover:bg-[#004493] text-white font-quicksand font-bold py-3 rounded-xl text-xs sm:text-sm transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
             >
-              Check Status Again
+              <span className="material-symbols-outlined text-lg">refresh</span>
+              <span>Check Status Again</span>
             </button>
 
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="w-full bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] font-quicksand font-bold py-2.5 rounded-xl text-xs transition-colors"
+              className="w-full bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] font-quicksand font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
             >
-              Sign Out
+              <span className="material-symbols-outlined text-base">logout</span>
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -416,7 +530,8 @@ export default function StudentDashboard() {
           </h2>
           
           {assignedSection ? (
-            <span className="mt-1.5 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-3 py-0.5 rounded-full border border-[#005bbf]/20">
+            <span className="mt-1.5 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-3 py-0.5 rounded-full border border-[#005bbf]/20 flex items-center gap-1">
+              <span className="material-symbols-outlined text-xs">school</span>
               {assignedSection}
             </span>
           ) : (
@@ -578,7 +693,8 @@ export default function StudentDashboard() {
               </div>
               <h2 className="font-quicksand text-lg font-bold">Hi, {firstName}!</h2>
               {assignedSection && (
-                <span className="mt-1 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2.5 py-0.5 rounded-full">
+                <span className="mt-1 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">school</span>
                   {assignedSection}
                 </span>
               )}
@@ -629,7 +745,7 @@ export default function StudentDashboard() {
             <p className="text-xs sm:text-sm text-[#414754]">
               {activeNav === "learning" && `Here is your plan for the week, ${firstName}!`}
               {activeNav === "assignments" && "Complete your assigned tasks from your teacher."}
-              {activeNav === "sections" && "View your section information and learning peers."}
+              {activeNav === "sections" && "View your section members and participate in class discussion."}
               {activeNav === "tutors" && "Connect with your tutors and ask questions anytime."}
               {activeNav === "resources" && "Download worksheets, guides, and storybooks."}
             </p>
@@ -724,8 +840,9 @@ export default function StudentDashboard() {
                   </span>
 
                   {assignedSection && (
-                    <span className="inline-block px-3 py-1 bg-[#005bbf]/10 text-[#005bbf] border border-[#005bbf]/20 rounded-full text-xs font-bold font-quicksand">
-                      🏫 {assignedSection}
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#005bbf]/10 text-[#005bbf] border border-[#005bbf]/20 rounded-full text-xs font-bold font-quicksand">
+                      <span className="material-symbols-outlined text-xs">school</span>
+                      {assignedSection}
                     </span>
                   )}
                 </div>
@@ -788,6 +905,7 @@ export default function StudentDashboard() {
                         width={32}
                         height={32}
                         unoptimized
+                        referrerPolicy="no-referrer"
                         className="w-8 h-8 rounded-full object-cover border-2 border-white/50 shrink-0"
                       />
                       <div className="flex-1 min-w-0">
@@ -1058,11 +1176,12 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* 🏫 NEW NAV VIEW: MY SECTION */}
+        {/* 🏫 NAV VIEW: MY SECTION (WITH SEEN READ RECEIPTS & TYPING INDICATORS) */}
         {activeNav === "sections" && (
           <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 md:p-8 border border-[#eae8e7] shadow-sm">
-              <div className="flex items-center gap-4 mb-4">
+            {/* Section Banner */}
+            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-sm">
+              <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center shrink-0">
                   <span className="material-symbols-outlined text-3xl">school</span>
                 </div>
@@ -1077,44 +1196,247 @@ export default function StudentDashboard() {
                   </p>
                 </div>
               </div>
+            </div>
 
-              {assignedSection && (
-                <div className="mt-6 pt-6 border-t border-[#eae8e7]">
-                  <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-3 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#005bbf]">groups</span>
-                    Classmates in {assignedSection}
-                  </h3>
-                  <p className="text-xs text-[#727785] mb-4">
-                    Students enrolled in the same section as you.
-                  </p>
+            {assignedSection && currentSectionId ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* 👥 Left Panel: Group Members */}
+                <div className="lg:col-span-4 bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-4">
+                      <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[#005bbf]">groups</span>
+                        Group Members
+                      </h3>
+                      <span className="text-[10px] bg-[#005bbf]/10 text-[#005bbf] font-bold px-2 py-0.5 rounded-full">
+                        Section {assignedSection}
+                      </span>
+                    </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    <div className="flex items-center gap-3 bg-[#f5f3f3] p-3 rounded-2xl border border-[#eae8e7]">
-                      <div className="w-10 h-10 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold font-quicksand shrink-0 overflow-hidden">
-                        {userImage && !imageError ? (
-                          <Image
-                            src={userImage}
-                            alt={rawName}
-                            width={40}
-                            height={40}
-                            unoptimized
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span>{userInitial}</span>
-                        )}
+                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                      {/* Teacher Badge */}
+                      <div className="flex items-center gap-3 p-2.5 bg-[#f5f3f3] rounded-2xl border border-[#005bbf]/20">
+                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                          <span className="material-symbols-outlined text-lg">school</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c] truncate">
+                            Class Teacher
+                          </p>
+                          <span className="text-[10px] text-[#005bbf] font-semibold block">
+                            Instructor &amp; Moderator
+                          </span>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">
-                          {rawName} (You)
-                        </p>
-                        <span className="text-[10px] text-[#005bbf] font-semibold">Active Student</span>
+
+                      {/* Current Student (You) */}
+                      <div className="flex items-center gap-3 p-2.5 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7]">
+                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden shadow-xs">
+                          {userImage && !imageError ? (
+                            <Image
+                              src={userImage}
+                              alt={rawName}
+                              width={36}
+                              height={36}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span>{userInitial}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c] truncate">
+                            {rawName} (You)
+                          </p>
+                          <span className="text-[10px] text-[#0f9d58] font-semibold block">
+                            Enrolled Student
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
+
+                  <div className="mt-4 pt-3 border-t border-[#eae8e7]">
+                    <p className="text-[11px] text-[#727785] text-center">
+                      Only authorized section members can view and chat here.
+                    </p>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* 💬 Right Panel: Section Group Chat */}
+                <div className="lg:col-span-8 flex flex-col h-[520px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-sm">
+                  {/* Chat Header */}
+                  <div className="bg-white border-b border-[#eae8e7] p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center font-bold text-lg">
+                        <span className="material-symbols-outlined text-xl">forum</span>
+                      </div>
+                      <div>
+                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] leading-tight">
+                          {assignedSection} Class Discussion
+                        </h3>
+                        <p className="text-xs text-[#727785]">
+                          Real-time section messages
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Chat Messages Feed */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]">
+                    {sectionChatMessages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center py-10">
+                        <span className="material-symbols-outlined text-3xl text-[#727785] mb-2">
+                          chat_bubble_outline
+                        </span>
+                        <p className="text-xs text-[#727785]">
+                          No messages yet. Send a message to start the conversation with your class!
+                        </p>
+                      </div>
+                    ) : (
+                      sectionChatMessages.map((msg) => {
+                        const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
+                        const isTeacherMsg = msg.senderRole === "TEACHER" || msg.senderRole === "teacher";
+                        const isSeen = msg.seenBy && msg.seenBy.length > 1;
+
+                        const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        });
+
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}
+                          >
+                            {!isMe && (
+                              <div className="w-8 h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden shadow-xs">
+                                {msg.senderAvatar ? (
+                                  <Image
+                                    src={msg.senderAvatar}
+                                    alt={msg.senderName}
+                                    width={32}
+                                    height={32}
+                                    unoptimized
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span>{msg.senderName.charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                            )}
+
+                            <div
+                              className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs relative shadow-2xs ${
+                                isMe
+                                  ? "bg-[#005bbf] text-white rounded-tr-none"
+                                  : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                              }`}
+                            >
+                              {!isMe && (
+                                <p className="font-bold text-[11px] mb-1 text-[#005bbf] flex items-center gap-1">
+                                  {msg.senderName}
+                                  {isTeacherMsg ? (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] bg-[#005bbf]/10 text-[#005bbf] px-1.5 py-0.2 rounded-full font-bold">
+                                      <span className="material-symbols-outlined text-[12px]">school</span> Teacher
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded-full font-bold">
+                                      <span className="material-symbols-outlined text-[12px]">person</span> Student
+                                    </span>
+                                  )}
+                                </p>
+                              )}
+                              <p className="whitespace-pre-wrap break-words leading-relaxed text-xs">
+                                {msg.text}
+                              </p>
+                              
+                              {/* Message Time & Seen Receipt Indicator */}
+                              <div
+                                className={`flex items-center justify-end gap-1 text-[9px] mt-1 font-medium ${
+                                  isMe ? "text-white/80" : "text-[#727785]"
+                                }`}
+                              >
+                                <span>{formattedTime}</span>
+                                {isMe && (
+                                  <span
+                                    className={`material-symbols-outlined text-xs ${
+                                      isSeen ? "text-sky-200" : "text-white/60"
+                                    }`}
+                                    title={isSeen ? "Seen" : "Sent"}
+                                  >
+                                    {isSeen ? "done_all" : "done"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+
+                    {/* ✍️ Live Typing Indicator with Profile Icon */}
+                    {activeTypers.length > 0 && (
+                      <div className="flex items-center gap-2 p-2.5 bg-white border border-[#eae8e7] rounded-2xl w-fit text-xs text-[#005bbf] shadow-2xs animate-fadeIn">
+                        <div className="w-6 h-6 rounded-full bg-[#005bbf] text-white overflow-hidden shrink-0 flex items-center justify-center font-bold text-[10px]">
+                          {activeTypers[0].userAvatar ? (
+                            <Image
+                              src={activeTypers[0].userAvatar}
+                              alt={activeTypers[0].userName}
+                              width={24}
+                              height={24}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            activeTypers[0].userName.charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        <span className="font-semibold text-xs text-[#1b1c1c]">
+                          {activeTypers[0].userName} is typing...
+                        </span>
+                        <span className="material-symbols-outlined text-xs text-[#005bbf] animate-bounce">
+                          more_horiz
+                        </span>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  {/* Chat Input */}
+                  <div className="bg-white p-3 border-t border-[#eae8e7] flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type a message to your section..."
+                      className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                      value={studentChatInput}
+                      onChange={(e) => handleTypingInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSendStudentMessage()}
+                    />
+                    <button
+                      onClick={handleSendStudentMessage}
+                      disabled={!studentChatInput.trim()}
+                      className="bg-[#005bbf] hover:bg-[#004493] text-white px-5 py-2.5 rounded-full text-xs font-quicksand font-bold transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl p-8 text-center border border-[#eae8e7]">
+                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
+                  chat_error
+                </span>
+                <p className="text-xs text-[#727785]">
+                  Group chat will unlock once your teacher assigns you to an active section.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1128,6 +1450,7 @@ export default function StudentDashboard() {
                 width={56}
                 height={56}
                 unoptimized
+                referrerPolicy="no-referrer"
                 className="w-14 h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
               />
               <div>

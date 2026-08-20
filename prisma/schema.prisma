@@ -103,9 +103,34 @@ model Submission {
 }
 
 model Section {
-  id        String   @id @default(cuid())
-  name      String   @unique
+  id        String           @id @default(cuid())
+  name      String           @unique
   students  User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  messages  SectionMessage[] // 👈 Section messages relation
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model SectionMessage {
+  id           String   @id @default(cuid())
+  sectionId    String
+  section      Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  senderEmail  String
+  senderName   String
+  senderRole   String   // "TEACHER" or "STUDENT"
+  senderAvatar String?
+  text         String
+  seenBy       String[] @default([]) // 👈 Tracks emails of users who saw this message
+  createdAt    DateTime @default(now())
+}
+
+model SectionTyping {
+  id         String   @id @default(cuid())
+  sectionId  String
+  userEmail  String
+  userName   String
+  userAvatar String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([sectionId, userEmail])
 }
