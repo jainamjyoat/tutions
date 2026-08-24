@@ -59,15 +59,6 @@ type Meeting = {
   status: "upcoming" | "completed" | "cancelled";
 };
 
-type Message = {
-  id: string;
-  name: string;
-  role: string;
-  avatar: string;
-  text: string;
-  online: boolean;
-};
-
 type NotificationItem = {
   id: string;
   title: string;
@@ -85,13 +76,13 @@ export default function StudentDashboard() {
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
-    "learning" | "assignments" | "sections" | "tutors" | "resources"
+    "learning" | "assignments" | "classes" | "sections" | "resources"
   >("learning");
 
   // Real Database Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  // 📅 Real Database Scheduled Meetings State
+  // Real Database Scheduled Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
 
   // Student File Attachments State
@@ -118,7 +109,7 @@ export default function StudentDashboard() {
     {
       id: "2",
       title: "Class Reminder",
-      desc: "Live learning session scheduled. Check Upcoming Classes.",
+      desc: "Live learning session scheduled. Check your Classes tab.",
       time: "1 hour ago",
       read: false,
     },
@@ -128,13 +119,14 @@ export default function StudentDashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [soundEffects, setSoundEffects] = useState(true);
+  const [dailyProgress, setDailyProgress] = useState(0);
 
-  // 🔄 Auto-scroll to bottom of chat
+  // Auto-scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [sectionChatMessages, activeTypers]);
 
-  // Auto-redirect Teacher OR Check Student Approval Status & Section on mount
+  // Check Student Approval Status & Section
   useEffect(() => {
     const userRole = (session?.user as any)?.role;
 
@@ -178,7 +170,7 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // 🔄 Fetch Scheduled Meetings from Database (Polls every 5s)
+  // Fetch Scheduled Meetings from Database (Polls every 5s)
   useEffect(() => {
     async function fetchMeetings() {
       try {
@@ -191,7 +183,7 @@ export default function StudentDashboard() {
 
             const myMeetings = data.meetings.filter((m: Meeting) => {
               if (m.status !== "upcoming") return false;
-              if (!m.studentId && !m.studentEmail) return true; // General class session
+              if (!m.studentId && !m.studentEmail) return true;
               const matchesId = m.studentId && m.studentId === currentStudentId;
               const matchesEmail =
                 m.studentEmail &&
@@ -215,7 +207,7 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // 🔄 Fetch Section Group Chat Messages & Typers (Polls every 2.5s)
+  // Fetch Section Group Chat Messages & Typers (Polls every 2.5s)
   useEffect(() => {
     if (!currentSectionId) return;
 
@@ -247,7 +239,7 @@ export default function StudentDashboard() {
     }
   }, [currentSectionId, status]);
 
-  // ✍️ Trigger Typing Ping when Student is typing
+  // Trigger Typing Ping when Student is typing
   const handleTypingInput = (text: string) => {
     setStudentChatInput(text);
 
@@ -264,7 +256,7 @@ export default function StudentDashboard() {
     }
   };
 
-  // 💬 Send Student Section Message
+  // Send Student Section Message
   const handleSendStudentMessage = async () => {
     if (!studentChatInput.trim() || !currentSectionId) return;
 
@@ -294,7 +286,7 @@ export default function StudentDashboard() {
     }
   };
 
-  // 🔄 Fetch Assignments from Database
+  // Fetch Assignments from Database & Calculate Daily Progress
   useEffect(() => {
     async function fetchAssignments() {
       try {
@@ -306,20 +298,24 @@ export default function StudentDashboard() {
             const currentStudentName = session?.user?.name;
 
             const myAssignments = data.assignments.filter((a: Assignment) => {
-              if (!a.studentId && !a.studentName) {
-                return true;
-              }
-              
+              if (!a.studentId && !a.studentName) return true;
               const matchesId = a.studentId && a.studentId === currentStudentId;
               const matchesName =
                 a.studentName &&
                 currentStudentName &&
                 a.studentName.toLowerCase() === currentStudentName.toLowerCase();
-
               return matchesId || matchesName;
             });
 
             setAssignments(myAssignments);
+
+            // Compute actual assignment progress
+            if (myAssignments.length > 0) {
+              const completedCount = myAssignments.filter((a: Assignment) => a.status === "completed").length;
+              setDailyProgress(Math.round((completedCount / myAssignments.length) * 100));
+            } else {
+              setDailyProgress(0);
+            }
           }
         }
       } catch (err) {
@@ -399,29 +395,14 @@ export default function StudentDashboard() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const [messages] = useState<Message[]>([
-    {
-      id: "1",
-      name: "Ms. Sarah",
-      role: "Math Tutor",
-      avatar:
-        "https://lh3.googleusercontent.com/aida-public/AB6AXuDTFxk46S7ROXdOAhBSK8153pLWE7SXzDlBlMESne1J5VvzxvgK1fxfBJ2stZJQpsw92Tr-X4pHafPH_DZDzgyO7zNmCZmamm-SBBrd52KJcj3kMB9vO_h4mLRbZ_LEF-J43G9wzN02cQHs5XMe9f-dQVn4rgFN0tv8_6Q7Jg_M_6DQ5yKOK3u5Q2IYM0IDMgl_mVjQ2rIiBwS7lZPsQaDsFsbtCoPHYs-x2S3S9uCpV72a2hU25HS_Aw",
-      text: `${firstName} did amazing with counting today! Try the new blocks game tonight.`,
-      online: true,
-    },
-  ]);
-
-  const [dailyProgress, setDailyProgress] = useState(65);
-
   const navItems = [
-    { id: "learning" as const, icon: "school", label: "My Learning" },
+    { id: "learning" as const, icon: "dashboard", label: "My Learning" },
     { id: "assignments" as const, icon: "assignment", label: "Assignments" },
+    { id: "classes" as const, icon: "videocam", label: "Classes" },
     { id: "sections" as const, icon: "groups", label: "My Section" },
-    { id: "tutors" as const, icon: "face", label: "My Tutors" },
     { id: "resources" as const, icon: "library_books", label: "Resources" },
   ];
 
-  // Helper to format meeting date for calendar badge
   const parseMeetingDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr + "T00:00:00");
@@ -433,6 +414,10 @@ export default function StudentDashboard() {
     }
   };
 
+  const hasActiveAssignments = assignments.length > 0;
+  const activeAssignmentsCount = assignments.filter((a) => a.status === "active").length;
+  const completedAssignmentsCount = assignments.filter((a) => a.status === "completed").length;
+
   const renderModal = (
     open: boolean,
     onClose: () => void,
@@ -442,8 +427,8 @@ export default function StudentDashboard() {
     if (!open) return null;
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl p-5 sm:p-6 max-w-[720px] w-full shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-2 border-b border-[#eae8e7]/50">
+        <div className="bg-white rounded-3xl p-5 sm:p-6 max-w-[720px] w-full shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-2 border-b border-[#eae8e7]/60">
             <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c]">{title}</h3>
             <button
               onClick={onClose}
@@ -473,8 +458,8 @@ export default function StudentDashboard() {
   if (approvalStatus === "pending") {
     return (
       <div className="min-h-screen w-full bg-[#fbf9f8] flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-8 max-w-[720px] w-full text-center border border-[#eae8e7] shadow-lg space-y-6">
-          <div className="w-16 h-16 bg-[#005bbf]/10 text-[#005bbf] rounded-full flex items-center justify-center mx-auto">
+        <div className="bg-white rounded-3xl p-8 max-w-[620px] w-full text-center border border-[#eae8e7] shadow-xl space-y-6">
+          <div className="w-16 h-16 bg-[#005bbf]/10 text-[#005bbf] rounded-2xl flex items-center justify-center mx-auto">
             <span className="material-symbols-outlined text-3xl">hourglass_top</span>
           </div>
 
@@ -483,18 +468,18 @@ export default function StudentDashboard() {
               Account Approval Pending
             </h2>
             <p className="text-xs sm:text-sm text-[#414754] leading-relaxed">
-              Hi <strong className="text-[#1b1c1c]">{firstName}</strong>! Your account (
-              <span className="text-[#005bbf] font-medium">{session?.user?.email}</span>) has been logged in.
+              Hi <strong className="text-[#1b1c1c]">{firstName}</strong>! Your student account (
+              <span className="text-[#005bbf] font-medium">{session?.user?.email}</span>) is awaiting authorization.
             </p>
             <p className="text-xs text-[#727785] leading-relaxed">
-              Your teacher needs to authorize your access from the Teacher Dashboard before you can view your classes.
+              Your instructor will authorize your access shortly.
             </p>
           </div>
 
           <div className="pt-2 space-y-3">
             <button
               onClick={() => window.location.reload()}
-              className="w-full bg-[#005bbf] hover:bg-[#004493] text-white font-quicksand font-bold py-3 rounded-xl text-xs sm:text-sm transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+              className="w-full bg-[#005bbf] hover:bg-[#004493] text-white font-quicksand font-bold py-3 rounded-2xl text-xs sm:text-sm transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-lg">refresh</span>
               <span>Check Status Again</span>
@@ -502,7 +487,7 @@ export default function StudentDashboard() {
 
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="w-full bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] font-quicksand font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] font-quicksand font-bold py-2.5 rounded-2xl text-xs transition-colors flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-base">logout</span>
               <span>Sign Out</span>
@@ -514,292 +499,272 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row">
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col gap-2 p-4 border-r border-[#c1c6d6] bg-[#f5f3f3] h-screen w-64 fixed left-0 top-0 z-40">
-        <div className="flex items-center gap-3 mb-6 px-2">
-          <span
-            className="material-symbols-outlined text-[#005bbf] text-3xl"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            toys
-          </span>
-          <span className="font-quicksand text-2xl font-bold text-[#005bbf]">
-            Happy Toddles
-          </span>
-        </div>
-
-        {/* Dynamic Profile Avatar & Section Badge */}
-        <div className="flex flex-col items-center mb-6 px-2">
-          <div className="w-20 h-20 rounded-full border-4 border-[#005bbf] p-1 mb-3 bg-[#005bbf] text-white flex items-center justify-center overflow-hidden font-quicksand font-bold text-2xl shrink-0 shadow-sm">
-            {userImage && !imageError ? (
-              <Image
-                src={userImage}
-                alt={rawName}
-                width={80}
-                height={80}
-                unoptimized
-                referrerPolicy="no-referrer"
-                onError={() => setImageError(true)}
-                className="w-full h-full rounded-full object-cover"
-              />
-            ) : (
-              <span>{userInitial}</span>
-            )}
-          </div>
-          <h2 className="font-quicksand text-xl font-bold text-[#1b1c1c] truncate max-w-full">
-            Hi, {firstName}!
-          </h2>
-          
-          {assignedSection ? (
-            <span className="mt-1.5 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-3 py-0.5 rounded-full border border-[#005bbf]/20 flex items-center gap-1">
-              <span className="material-symbols-outlined text-xs">school</span>
-              {assignedSection}
-            </span>
-          ) : (
-            <p className="text-xs text-[#727785] font-medium mt-1">No Section Assigned</p>
-          )}
-        </div>
-
-        <nav className="flex flex-col gap-1.5 flex-grow">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveNav(item.id)}
-              className={`flex items-center gap-3 rounded-xl px-4 py-3 font-bold transition-all text-left ${
-                activeNav === item.id
-                  ? "bg-[#1a73e8] text-white shadow-sm"
-                  : "text-[#414754] hover:bg-[#e4e2e1]"
-              }`}
-            >
-              <span
-                className="material-symbols-outlined"
-                style={activeNav === item.id ? { fontVariationSettings: "'FILL' 1" } : {}}
-              >
-                {item.icon}
+    <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row antialiased">
+      {/* 🧭 Modern Slim Sidebar */}
+      <aside className="hidden md:flex flex-col justify-between p-5 border-r border-[#eae8e7] bg-white h-screen w-72 fixed left-0 top-0 z-40 shadow-[1px_0_10px_rgba(0,0,0,0.02)]">
+        <div>
+          {/* Brand Header */}
+          <div className="flex items-center gap-3 px-2 mb-8">
+            <div className="w-10 h-10 rounded-2xl bg-[#005bbf] text-white flex items-center justify-center shadow-sm">
+              <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                toys
               </span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
+            </div>
+            <div>
+              <span className="font-quicksand text-xl font-bold text-[#005bbf] tracking-tight block leading-tight">
+                Happy Toddles
+              </span>
+              <span className="text-[11px] text-[#727785] font-medium">Student Portal</span>
+            </div>
+          </div>
 
-        <div className="mt-auto">
+          {/* User Profile Card */}
+          <div className="p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]/80 flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-full border-2 border-[#005bbf] p-0.5 bg-white text-[#005bbf] flex items-center justify-center overflow-hidden font-quicksand font-bold text-lg shrink-0">
+              {userImage && !imageError ? (
+                <Image
+                  src={userImage}
+                  alt={rawName}
+                  width={48}
+                  height={48}
+                  unoptimized
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageError(true)}
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <span>{userInitial}</span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">{firstName}</h4>
+              {assignedSection ? (
+                <span className="inline-flex items-center gap-1 text-[10px] text-[#005bbf] font-bold bg-[#005bbf]/10 px-2 py-0.5 rounded-full mt-0.5">
+                  <span className="material-symbols-outlined text-[12px]">school</span>
+                  {assignedSection}
+                </span>
+              ) : (
+                <span className="text-[11px] text-[#727785]">No Section</span>
+              )}
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <nav className="flex flex-col gap-1.5">
+            {navItems.map((item) => {
+              const isActive = activeNav === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveNav(item.id)}
+                  className={`flex items-center gap-3.5 rounded-2xl px-4 py-3 font-quicksand font-bold text-xs transition-all text-left ${
+                    isActive
+                      ? "bg-[#005bbf] text-white shadow-sm"
+                      : "text-[#414754] hover:bg-[#f5f3f3] hover:text-[#005bbf]"
+                  }`}
+                >
+                  <span
+                    className="material-symbols-outlined text-lg"
+                    style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {item.id === "assignments" && activeAssignmentsCount > 0 && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        isActive ? "bg-white/20 text-white" : "bg-[#ac3509]/10 text-[#ac3509]"
+                      }`}
+                    >
+                      {activeAssignmentsCount}
+                    </span>
+                  )}
+                  {item.id === "classes" && meetings.length > 0 && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        isActive ? "bg-white/20 text-white" : "bg-[#005bbf]/10 text-[#005bbf]"
+                      }`}
+                    >
+                      {meetings.length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Sidebar Daily Goal Widget (Strictly conditional on assignments) */}
+        <div className="p-4 bg-[#f5f3f3] rounded-3xl border border-[#eae8e7]">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-quicksand font-bold text-xs text-[#1b1c1c] flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-[#fe6f42]">flag</span>
+              Daily Goal
+            </span>
+            <span className="text-xs font-bold text-[#005bbf]">{dailyProgress}%</span>
+          </div>
+          <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden mb-3">
+            <div
+              className="h-full bg-[#005bbf] rounded-full transition-all duration-500"
+              style={{ width: `${dailyProgress}%` }}
+            />
+          </div>
           <button
-            onClick={() => setDailyProgress((p) => Math.min(p + 5, 100))}
-            className="w-full bg-[#005bbf] text-white font-quicksand font-bold py-3 px-4 rounded-xl hover:bg-[#004493] transition-colors shadow-sm"
+            onClick={() => {
+              if (hasActiveAssignments) {
+                setActiveNav("assignments");
+              }
+            }}
+            disabled={!hasActiveAssignments}
+            className={`w-full py-2.5 rounded-xl font-quicksand font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs ${
+              hasActiveAssignments
+                ? "bg-[#005bbf] text-white hover:bg-[#004493] active:scale-95 cursor-pointer"
+                : "bg-[#eae8e7] text-[#727785] cursor-not-allowed opacity-75"
+            }`}
           >
-            Start Daily Goal
+            <span className="material-symbols-outlined text-sm">
+              {hasActiveAssignments ? "rocket_launch" : "lock"}
+            </span>
+            <span>{hasActiveAssignments ? "Start Daily Goal" : "No Assignments"}</span>
           </button>
         </div>
       </aside>
 
-      {/* Mobile Top Bar */}
-      <header className="md:hidden flex justify-between items-center w-full px-4 h-16 sticky top-0 z-50 bg-[#fbf9f8] shadow-sm border-b border-[#c1c6d6]">
-        <div className="flex items-center gap-2">
-          <span
-            className="material-symbols-outlined text-[#005bbf] text-2xl"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            toys
-          </span>
-          <span className="font-quicksand text-xl font-bold text-[#005bbf]">
-            Happy Toddles
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[#005bbf]">
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowNotifications(!showNotifications);
-                setShowSettingsModal(false);
-              }}
-              className="p-2 hover:opacity-80 transition-opacity relative"
-              aria-label="Notifications"
-            >
-              <span className="material-symbols-outlined block">notifications</span>
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ac3509] rounded-full border-2 border-white" />
-              )}
-            </button>
-
-            {showNotifications && (
-              <div className="fixed inset-x-3 top-16 bg-white rounded-2xl shadow-xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
-                <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-quicksand font-bold text-base text-[#1b1c1c]">Notifications</h4>
-                    {unreadNotificationsCount > 0 && (
-                      <span className="bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2 py-0.5 rounded-full">
-                        {unreadNotificationsCount} new
-                      </span>
-                    )}
-                  </div>
-                  {unreadNotificationsCount > 0 && (
-                    <button
-                      onClick={markAllNotificationsAsRead}
-                      className="text-xs text-[#005bbf] hover:underline font-semibold"
-                    >
-                      Mark all as read
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                  {notifications.length === 0 ? (
-                    <p className="text-xs text-[#727785] text-center py-6">No notifications</p>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        onClick={() => markNotificationAsRead(n.id)}
-                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                          n.read
-                            ? "bg-white border-[#eae8e7] opacity-75"
-                            : "bg-[#f5f3f3] border-[#005bbf]/20 font-medium"
-                        }`}
-                      >
-                        <div className="flex justify-between items-start gap-2 mb-1">
-                          <p className="font-quicksand font-bold text-[#1b1c1c] text-xs">{n.title}</p>
-                          <span className="text-[10px] text-[#727785] shrink-0">{n.time}</span>
-                        </div>
-                        <p className="text-[#414754] text-[11px] leading-relaxed">{n.desc}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+      {/* 📱 Mobile Top Bar */}
+      <header className="md:hidden flex justify-between items-center w-full px-4 h-16 sticky top-0 z-50 bg-white/90 backdrop-blur-md shadow-sm border-b border-[#eae8e7]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#005bbf] text-white flex items-center justify-center">
+            <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+              toys
+            </span>
           </div>
-
+          <span className="font-quicksand text-lg font-bold text-[#005bbf]">Happy Toddles</span>
+        </div>
+        <div className="flex items-center gap-1 text-[#005bbf]">
           <button
             onClick={() => {
-              setShowSettingsModal(true);
-              setShowNotifications(false);
+              setShowNotifications(!showNotifications);
+              setShowSettingsModal(false);
             }}
-            className="p-2 hover:opacity-80 transition-opacity"
-            aria-label="Settings"
+            className="p-2 hover:bg-[#f5f3f3] rounded-full relative"
+            aria-label="Notifications"
           >
-            <span className="material-symbols-outlined block">settings</span>
+            <span className="material-symbols-outlined text-xl block">notifications</span>
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#ac3509] rounded-full" />
+            )}
           </button>
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 hover:opacity-80 transition-opacity"
+            className="p-2 hover:bg-[#f5f3f3] rounded-full"
             aria-label="Toggle menu"
           >
-            <span className="material-symbols-outlined block">
+            <span className="material-symbols-outlined text-2xl block">
               {mobileMenuOpen ? "close" : "menu"}
             </span>
           </button>
         </div>
       </header>
 
-      {/* Mobile Menu Drawer */}
+      {/* 📱 Mobile Navigation Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 top-16 bg-black/40 backdrop-blur-sm z-40">
-          <div className="bg-white w-[280px] h-full shadow-2xl p-6 flex flex-col gap-2">
-            <div className="flex flex-col items-center mb-6 pb-6 border-b border-[#eae8e7]">
-              <div className="w-16 h-16 rounded-full border-4 border-[#005bbf] p-1 mb-3 bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-xl overflow-hidden shrink-0">
-                {userImage && !imageError ? (
-                  <Image
-                    src={userImage}
-                    alt={rawName}
-                    width={64}
-                    height={64}
-                    unoptimized
-                    referrerPolicy="no-referrer"
-                    onError={() => setImageError(true)}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  <span>{userInitial}</span>
-                )}
+          <div className="bg-white w-[280px] h-full shadow-2xl p-6 flex flex-col justify-between animate-slideRight">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 pb-4 border-b border-[#eae8e7]">
+                <div className="w-12 h-12 rounded-full border-2 border-[#005bbf] flex items-center justify-center font-bold text-sm bg-white overflow-hidden">
+                  {userImage && !imageError ? (
+                    <Image
+                      src={userImage}
+                      alt={rawName}
+                      width={48}
+                      height={48}
+                      unoptimized
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{userInitial}</span>
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c]">{firstName}</h3>
+                  <p className="text-xs text-[#727785]">{assignedSection || "No Section"}</p>
+                </div>
               </div>
-              <h2 className="font-quicksand text-lg font-bold">Hi, {firstName}!</h2>
-              {assignedSection && (
-                <span className="mt-1 bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                  <span className="material-symbols-outlined text-xs">school</span>
-                  {assignedSection}
-                </span>
-              )}
+
+              <nav className="flex flex-col gap-1.5">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveNav(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 rounded-xl px-4 py-3 font-quicksand font-bold text-xs text-left ${
+                      activeNav === item.id ? "bg-[#005bbf] text-white" : "text-[#414754] hover:bg-[#f5f3f3]"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-lg">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </nav>
             </div>
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveNav(item.id);
-                  setMobileMenuOpen(false);
-                }}
-                className={`flex items-center gap-3 rounded-xl px-4 py-3 font-bold transition-all text-left ${
-                  activeNav === item.id
-                    ? "bg-[#1a73e8] text-white"
-                    : "text-[#414754] hover:bg-[#f5f3f3]"
-                }`}
-              >
-                <span className="material-symbols-outlined">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-            <div className="mt-auto">
-              <button
-                onClick={() => {
-                  setDailyProgress((p) => Math.min(p + 5, 100));
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full bg-[#005bbf] text-white font-quicksand font-bold py-3 rounded-xl"
-              >
-                Start Daily Goal
-              </button>
-            </div>
+
+            <button
+              onClick={() => {
+                setShowSettingsModal(true);
+                setMobileMenuOpen(false);
+              }}
+              className="w-full bg-[#f5f3f3] text-[#414754] py-3 rounded-xl font-quicksand font-bold text-xs flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-base">settings</span>
+              <span>Settings</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8 overflow-y-auto w-full max-w-7xl mx-auto">
-        <div className="flex justify-between items-end mb-8">
+      {/* 🚀 Main Workspace Content */}
+      <main className="flex-1 md:ml-72 p-4 sm:p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
+        {/* Top Glance Header */}
+        <header className="hidden md:flex justify-between items-center bg-white p-4 sm:px-6 rounded-3xl border border-[#eae8e7] shadow-xs">
           <div>
-            <h1 className="font-quicksand text-2xl sm:text-3xl md:text-4xl font-bold text-[#1b1c1c] mb-1.5">
-              {activeNav === "learning" && "My Learning Journey"}
-              {activeNav === "assignments" && "My Assignments & Activities"}
-              {activeNav === "sections" && "My Section & Classmates"}
-              {activeNav === "tutors" && "My Teachers & Tutors"}
-              {activeNav === "resources" && "Learning Resources"}
+            <h1 className="font-quicksand text-xl lg:text-2xl font-bold text-[#1b1c1c]">
+              {activeNav === "learning" && `Welcome back, ${firstName}! ✨`}
+              {activeNav === "assignments" && "Assignments & Worksheets"}
+              {activeNav === "classes" && "Scheduled Live Classes"}
+              {activeNav === "sections" && "Section & Group Discussions"}
+              {activeNav === "resources" && "Learning Materials"}
             </h1>
-            <p className="text-xs sm:text-sm text-[#414754]">
-              {activeNav === "learning" && `Here is your plan for the week, ${firstName}!`}
-              {activeNav === "assignments" && "Complete your assigned tasks from your teacher."}
-              {activeNav === "sections" && "View your section members and participate in class discussion."}
-              {activeNav === "tutors" && "Connect with your tutors and ask questions anytime."}
-              {activeNav === "resources" && "Download worksheets, guides, and storybooks."}
+            <p className="text-xs text-[#727785] mt-0.5">
+              {activeNav === "learning" && "Track your daily study goals and active assignments."}
+              {activeNav === "assignments" && "Complete your assigned tasks and attach your work."}
+              {activeNav === "classes" && "Join your live Google Meet classes hosted by your teacher."}
+              {activeNav === "sections" && "Engage in class group chat and meet your classmates."}
+              {activeNav === "resources" && "Download downloadable printables and reading sheets."}
             </p>
           </div>
 
-          <div className="hidden md:flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <div className="relative">
               <button
-                onClick={() => {
-                  setShowNotifications(!showNotifications);
-                  setShowSettingsModal(false);
-                }}
-                className="p-2.5 rounded-full bg-[#f0eded] hover:bg-[#e4e2e1] transition-colors text-[#005bbf] relative"
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2.5 rounded-2xl bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#005bbf] transition-colors relative"
                 aria-label="Notifications"
               >
-                <span className="material-symbols-outlined block">notifications</span>
+                <span className="material-symbols-outlined text-xl block">notifications</span>
                 {unreadNotificationsCount > 0 && (
                   <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ac3509] rounded-full border-2 border-white" />
                 )}
               </button>
 
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
                   <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-quicksand font-bold text-base text-[#1b1c1c]">Notifications</h4>
-                      {unreadNotificationsCount > 0 && (
-                        <span className="bg-[#005bbf]/10 text-[#005bbf] text-xs font-bold px-2 py-0.5 rounded-full">
-                          {unreadNotificationsCount} new
-                        </span>
-                      )}
-                    </div>
+                    <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Notifications</h4>
                     {unreadNotificationsCount > 0 && (
                       <button
                         onClick={markAllNotificationsAsRead}
@@ -809,331 +774,274 @@ export default function StudentDashboard() {
                       </button>
                     )}
                   </div>
-                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-                    {notifications.length === 0 ? (
-                      <p className="text-xs text-[#727785] text-center py-6">No notifications</p>
-                    ) : (
-                      notifications.map((n) => (
-                        <div
-                          key={n.id}
-                          onClick={() => markNotificationAsRead(n.id)}
-                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                            n.read
-                              ? "bg-white border-[#eae8e7] opacity-75"
-                              : "bg-[#f5f3f3] border-[#005bbf]/20 font-medium"
-                          }`}
-                        >
-                          <div className="flex justify-between items-start gap-2 mb-1">
-                            <p className="font-quicksand font-bold text-[#1b1c1c] text-xs">{n.title}</p>
-                            <span className="text-[10px] text-[#727785] shrink-0">{n.time}</span>
-                          </div>
-                          <p className="text-[#414754] text-[11px] leading-relaxed">{n.desc}</p>
-                        </div>
-                      ))
-                    )}
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={() => markNotificationAsRead(n.id)}
+                        className={`p-3 rounded-2xl border text-xs cursor-pointer transition-all ${
+                          n.read ? "bg-white border-[#eae8e7] opacity-75" : "bg-[#f5f3f3] border-[#005bbf]/20"
+                        }`}
+                      >
+                        <p className="font-quicksand font-bold text-[#1b1c1c] text-xs">{n.title}</p>
+                        <p className="text-[#414754] text-[11px] mt-0.5">{n.desc}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
             </div>
 
             <button
-              onClick={() => {
-                setShowSettingsModal(true);
-                setShowNotifications(false);
-              }}
-              className="p-2.5 rounded-full bg-[#f0eded] hover:bg-[#e4e2e1] transition-colors text-[#005bbf]"
+              onClick={() => setShowSettingsModal(true)}
+              className="p-2.5 rounded-2xl bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#005bbf] transition-colors"
               aria-label="Settings"
             >
-              <span className="material-symbols-outlined block">settings</span>
+              <span className="material-symbols-outlined text-xl block">settings</span>
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* NAV VIEW: MY LEARNING */}
+        {/* 🌟 VIEW 1: MY LEARNING (REDESIGNED BENTO HUB) */}
         {activeNav === "learning" && (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            <div className="md:col-span-8 bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-[#e4e2e1] relative overflow-hidden flex flex-col justify-between min-h-[300px]">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-[#d8e2ff] rounded-full blur-3xl opacity-30 -mr-20 -mt-20 pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#ffdbd0] rounded-full blur-2xl opacity-20 -ml-10 -mb-10 pointer-events-none" />
-              <div className="relative z-10 mb-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="inline-block px-3 py-1 bg-[#fe6f42] text-white rounded-full text-xs font-bold font-quicksand uppercase tracking-wider">
-                    Today&apos;s Focus
+          <div className="space-y-6">
+            {/* Bento Top Row: Hero Banner & Quick Metrics */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Hero Action Card */}
+              <div className="lg:col-span-8 bg-gradient-to-br from-[#005bbf] to-[#004493] rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[220px]">
+                <div
+                  className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none"
+                />
+                <div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-quicksand font-bold tracking-wide uppercase mb-3">
+                    <span className="material-symbols-outlined text-sm">stars</span>
+                    Daily Learning Journey
                   </span>
+                  <h2 className="font-quicksand text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+                    {hasActiveAssignments
+                      ? `You have ${activeAssignmentsCount} active assignment${activeAssignmentsCount === 1 ? "" : "s"} today!`
+                      : "All caught up! No active assignments right now."}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-white/80 max-w-0.9">
+                    {hasActiveAssignments
+                      ? "Complete your tasks and submit your worksheets to advance your learning progress."
+                      : "Check back later or ask your instructor in your Section chat for new activities."}
+                  </p>
+                </div>
+
+                <div className="pt-5 flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={() => {
+                      if (hasActiveAssignments) setActiveNav("assignments");
+                    }}
+                    disabled={!hasActiveAssignments}
+                    className={`px-6 py-3 rounded-2xl font-quicksand font-bold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 ${
+                      hasActiveAssignments
+                        ? "bg-[#fe6f42] text-white hover:bg-[#fe5b27] active:scale-95 cursor-pointer"
+                        : "bg-white/20 text-white/60 cursor-not-allowed"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-base">
+                      {hasActiveAssignments ? "play_arrow" : "lock"}
+                    </span>
+                    <span>{hasActiveAssignments ? "Continue Learning Goal" : "Goal Locked (No Tasks)"}</span>
+                  </button>
 
                   {assignedSection && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#005bbf]/10 text-[#005bbf] border border-[#005bbf]/20 rounded-full text-xs font-bold font-quicksand">
-                      <span className="material-symbols-outlined text-xs">school</span>
-                      {assignedSection}
+                    <span className="text-xs bg-white/15 px-4 py-2.5 rounded-2xl font-semibold backdrop-blur-md">
+                      🏫 Section: {assignedSection}
                     </span>
                   )}
                 </div>
+              </div>
 
-                <h2 className="font-quicksand text-2xl sm:text-3xl font-bold text-[#1b1c1c] mb-2">
-                  Mastering Shapes &amp; Colors
-                </h2>
-                <p className="text-xs sm:text-sm text-[#414754]">
-                  You&apos;re doing great! Complete your next task to earn a special badge.
-                </p>
-              </div>
-              <div className="relative z-10 flex flex-col sm:flex-row gap-4 items-center">
-                <div className="flex-1 w-full bg-[#f5f3f3] rounded-full h-4 overflow-hidden border border-[#e4e2e1]">
-                  <div
-                    className="bg-[#005bbf] h-full rounded-full transition-all duration-500"
-                    style={{ width: `${dailyProgress}%` }}
-                  />
-                </div>
-                <span className="font-quicksand font-bold text-[#005bbf] whitespace-nowrap text-sm">
-                  {dailyProgress}% Complete
-                </span>
-                <button
-                  onClick={() => setDailyProgress((p) => Math.min(p + 10, 100))}
-                  className="w-full sm:w-auto bg-[#ac3509] text-white font-quicksand font-bold py-2.5 px-6 rounded-xl hover:bg-[#fe6f42] hover:text-[#3a0a00] transition-colors shadow-sm text-xs sm:text-sm"
-                >
-                  Continue
-                </button>
-              </div>
-            </div>
-
-            <div className="md:col-span-4 bg-[#005bbf] rounded-3xl p-6 text-white shadow-md relative overflow-hidden flex flex-col">
-              <div
-                className="absolute inset-0 opacity-10 pointer-events-none"
-                style={{
-                  backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)",
-                  backgroundSize: "20px 20px",
-                }}
-              />
-              <div className="relative z-10 flex items-center justify-between mb-6">
-                <h3 className="font-quicksand text-xl font-bold flex items-center gap-2">
-                  <span
-                    className="material-symbols-outlined"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    chat_bubble
-                  </span>
-                  Teacher Chat
-                </h3>
-              </div>
-              <div className="relative z-10 flex-1 flex flex-col gap-4">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm border border-white/20"
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <Image
-                        src={msg.avatar}
-                        alt={msg.name}
-                        width={32}
-                        height={32}
-                        unoptimized
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-full object-cover border-2 border-white/50 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-quicksand font-bold text-sm truncate">{msg.name}</p>
-                        <p className="text-xs text-[#adc7ff] truncate">{msg.role}</p>
-                      </div>
-                      {msg.online && (
-                        <span className="w-2 h-2 rounded-full bg-[#ffdbd0] shrink-0" />
-                      )}
-                    </div>
-                    <p className="text-xs sm:text-sm text-white/90 leading-relaxed line-clamp-2">{msg.text}</p>
+              {/* Learning Stats Bento Card */}
+              <div className="lg:col-span-4 grid grid-cols-2 gap-3.5">
+                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center mb-2">
+                    <span className="material-symbols-outlined text-xl">assignment</span>
                   </div>
-                ))}
+                  <div>
+                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{activeAssignmentsCount}</p>
+                    <p className="text-[11px] text-[#727785] font-semibold">Active Tasks</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[#0f9d58]/10 text-[#0f9d58] flex items-center justify-center mb-2">
+                    <span className="material-symbols-outlined text-xl">task_alt</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{completedAssignmentsCount}</p>
+                    <p className="text-[11px] text-[#727785] font-semibold">Completed</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[#fe6f42]/10 text-[#fe6f42] flex items-center justify-center mb-2">
+                    <span className="material-symbols-outlined text-xl">videocam</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{meetings.length}</p>
+                    <p className="text-[11px] text-[#727785] font-semibold">Live Classes</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[#795900]/10 text-[#795900] flex items-center justify-center mb-2">
+                    <span className="material-symbols-outlined text-xl">trending_up</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{dailyProgress}%</p>
+                    <p className="text-[11px] text-[#727785] font-semibold">Completion</p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* 📅 DYNAMIC DATABASE-BACKED UPCOMING CLASSES */}
-            <div className="md:col-span-7 bg-white rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c] flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[#005bbf]">calendar_month</span>
-                  Upcoming Live Classes ({meetings.length})
-                </h3>
-              </div>
+            {/* Bento Lower Grid: Live Classes & Assignments Side-by-Side */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Scheduled Live Meetings Preview */}
+              <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[#005bbf]">videocam</span>
+                      Upcoming Classes ({meetings.length})
+                    </h3>
+                    <button onClick={() => setActiveNav("classes")} className="text-xs text-[#005bbf] font-bold hover:underline">
+                      View All
+                    </button>
+                  </div>
 
-              {meetings.length === 0 ? (
-                <div className="p-8 bg-[#f5f3f3] rounded-2xl text-center border border-dashed border-[#eae8e7]">
-                  <span className="material-symbols-outlined text-3xl text-[#727785] mb-1">
-                    event_available
-                  </span>
-                  <p className="text-xs text-[#727785] font-medium">
-                    No upcoming live classes scheduled by your teacher.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {meetings.map((meet) => {
-                    const { month, day } = parseMeetingDate(meet.date);
-
-                    return (
-                      <div
-                        key={meet.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border border-[#e4e2e1] hover:border-[#005bbf]/40 hover:bg-[#fbf9f8] transition-all gap-4 group"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="flex flex-col items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl font-quicksand shrink-0 bg-[#d8e2ff] text-[#005bbf] shadow-2xs">
-                            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">
-                              {month}
-                            </span>
-                            <span className="text-lg sm:text-xl font-bold">{day}</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="px-2 py-0.5 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold rounded-md uppercase tracking-wide">
-                                Live Class
-                              </span>
-                              <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] group-hover:text-[#005bbf] transition-colors truncate">
-                                {meet.topic}
-                              </h4>
-                            </div>
-                            <p className="text-xs sm:text-sm text-[#414754] flex items-center gap-1 font-medium">
-                              <span className="material-symbols-outlined text-[15px] text-[#005bbf]">schedule</span>
-                              <span>
-                                {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
-                              </span>
-                            </p>
-                          </div>
-                        </div>
-
-                        <a
-                          href={meet.meetLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-[#005bbf] hover:bg-[#004493] text-white px-5 py-2.5 rounded-full font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 shrink-0"
-                        >
-                          <span className="material-symbols-outlined text-base">videocam</span>
-                          <span>Ask to Join Meet</span>
-                        </a>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="md:col-span-5 bg-[#f5f3f3] rounded-3xl p-6 shadow-sm border border-[#e4e2e1]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-quicksand text-xl font-bold text-[#1b1c1c] flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[#005bbf]">assignment</span>
-                  Teacher Assignments
-                </h3>
-                <span className="text-xs bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-0.5 rounded-full font-bold">
-                  {assignments.filter((a) => a.status === "active").length} Active
-                </span>
-              </div>
-
-              {assignments.length === 0 ? (
-                <div className="bg-white rounded-2xl p-6 text-center border border-[#e4e2e1]">
-                  <span className="material-symbols-outlined text-3xl text-[#727785] mb-1">
-                    task_alt
-                  </span>
-                  <p className="text-xs text-[#727785]">No assignments posted by your teacher yet.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 max-h-[380px] overflow-y-auto pr-1">
-                  {assignments.map((assignment) => {
-                    const isCompleted = assignment.status === "completed";
-
-                    return (
-                      <button
-                        key={assignment.id}
-                        onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
-                        disabled={uploadingId === assignment.id}
-                        className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all w-full ${
-                          isCompleted
-                            ? "bg-white border-[#e4e2e1] opacity-75"
-                            : "bg-white border-l-4 border-[#005bbf] shadow-xs hover:border-[#004493]"
-                        }`}
-                      >
-                        <div className="mt-0.5 shrink-0">
-                          <span
-                            className={`material-symbols-outlined ${
-                              isCompleted ? "text-[#0f9d58]" : "text-[#727785]"
-                            }`}
-                            style={isCompleted ? { fontVariationSettings: "'FILL' 1" } : {}}
+                  {meetings.length === 0 ? (
+                    <div className="py-8 text-center text-[#727785]">
+                      <span className="material-symbols-outlined text-3xl mb-1">event_available</span>
+                      <p className="text-xs font-medium">No live classes scheduled today.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {meetings.slice(0, 2).map((meet) => {
+                        const { month, day } = parseMeetingDate(meet.date);
+                        return (
+                          <div
+                            key={meet.id}
+                            className="flex items-center justify-between p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]"
                           >
-                            {isCompleted ? "check_circle" : "radio_button_unchecked"}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start mb-1 gap-2">
-                            <h4
-                              className={`font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate ${
-                                isCompleted ? "line-through text-[#727785]" : ""
-                              }`}
-                            >
-                              {assignment.title}
-                            </h4>
-                            <span className="text-[10px] bg-[#005bbf]/10 text-[#005bbf] px-2 py-0.5 rounded-full font-semibold shrink-0">
-                              {assignment.subject}
-                            </span>
-                          </div>
-
-                          {assignment.description && (
-                            <p className="text-xs text-[#414754] my-1.5 bg-[#f5f3f3] p-2 rounded-lg border border-[#eae8e7]/60">
-                              {assignment.description}
-                            </p>
-                          )}
-
-                          {assignment.attachmentUrl && (
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-11 h-11 rounded-xl bg-[#005bbf] text-white flex flex-col items-center justify-center font-quicksand shrink-0">
+                                <span className="text-[9px] uppercase font-bold">{month}</span>
+                                <span className="text-sm font-bold leading-none">{day}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">
+                                  {meet.topic}
+                                </h4>
+                                <p className="text-[11px] text-[#727785]">
+                                  {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
+                                </p>
+                              </div>
+                            </div>
                             <a
-                              href={assignment.attachmentUrl}
+                              href={meet.meetLink}
                               target="_blank"
                               rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[11px] text-[#005bbf] font-bold hover:underline my-1"
+                              className="bg-[#005bbf] hover:bg-[#004493] text-white px-3.5 py-1.5 rounded-xl font-quicksand font-bold text-xs flex items-center gap-1 shrink-0"
                             >
-                              <span className="material-symbols-outlined text-xs">attach_file</span>
-                              <span>View Teacher Attachment</span>
+                              <span>Join</span>
                             </a>
-                          )}
-
-                          <div className="flex items-center justify-between text-[11px] text-[#727785] mt-1">
-                            <span>Section: {assignment.section}</span>
-                            <span className="font-medium text-[#ac3509]">Due: {assignment.dueDate}</span>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+
+              {/* Active Assignments Preview */}
+              <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[#005bbf]">assignment</span>
+                      Active Assignments ({activeAssignmentsCount})
+                    </h3>
+                    <button onClick={() => setActiveNav("assignments")} className="text-xs text-[#005bbf] font-bold hover:underline">
+                      View All
+                    </button>
+                  </div>
+
+                  {assignments.length === 0 ? (
+                    <div className="py-8 text-center text-[#727785]">
+                      <span className="material-symbols-outlined text-3xl mb-1">task_alt</span>
+                      <p className="text-xs font-medium">No active assignments posted.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {assignments.slice(0, 2).map((assignment) => {
+                        const isCompleted = assignment.status === "completed";
+                        return (
+                          <div
+                            key={assignment.id}
+                            className="flex items-center justify-between p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]"
+                          >
+                            <div className="min-w-0 pr-2">
+                              <span className="text-[10px] font-bold text-[#005bbf] bg-[#005bbf]/10 px-2 py-0.5 rounded-full">
+                                {assignment.subject}
+                              </span>
+                              <h4 className={`font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate mt-1 ${
+                                isCompleted ? "line-through text-[#727785]" : ""
+                              }`}>
+                                {assignment.title}
+                              </h4>
+                              <p className="text-[11px] text-[#727785] mt-0.5">Due: {assignment.dueDate}</p>
+                            </div>
+
+                            <button
+                              onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-quicksand font-bold shrink-0 transition-colors ${
+                                isCompleted ? "bg-[#0f9d58]/10 text-[#0f9d58]" : "bg-[#005bbf] text-white"
+                              }`}
+                            >
+                              {isCompleted ? "Done ✓" : "Mark Done"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* NAV VIEW: DEDICATED ASSIGNMENTS TAB */}
+        {/* 📝 VIEW 2: DEDICATED ASSIGNMENTS TAB */}
         {activeNav === "assignments" && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
                   Your Assigned Tasks ({assignments.length})
                 </h2>
-                <p className="text-xs sm:text-sm text-[#727785] mt-1">
-                  Complete your tasks and optionally attach your completed work file.
-                </p>
+                <p className="text-xs text-[#727785]">Complete tasks and submit attached work.</p>
               </div>
             </div>
 
             {assignments.length === 0 ? (
-              <div className="bg-white rounded-[20px] p-8 sm:p-12 text-center border border-[#eae8e7]">
-                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
-                  assignment_turned_in
-                </span>
-                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">All Caught Up!</h3>
+              <div className="bg-white rounded-3xl p-10 text-center border border-[#eae8e7]">
+                <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">assignment_turned_in</span>
+                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Assignments Available</h3>
+                <p className="text-xs text-[#727785] mt-1">Daily goals will unlock as soon as your teacher posts assignments.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {assignments.map((assignment) => {
                   const isCompleted = assignment.status === "completed";
-
                   return (
                     <div
                       key={assignment.id}
-                      className="bg-white rounded-[20px] p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                      className="bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
                     >
                       <div>
                         <div className="flex justify-between items-start mb-2">
@@ -1142,20 +1050,19 @@ export default function StudentDashboard() {
                           </span>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              isCompleted
-                                ? "bg-[#0f9d58]/10 text-[#0f9d58]"
-                                : "bg-[#795900]/10 text-[#795900]"
+                              isCompleted ? "bg-[#0f9d58]/10 text-[#0f9d58]" : "bg-[#795900]/10 text-[#795900]"
                             }`}
                           >
                             {isCompleted ? "Completed" : "Active"}
                           </span>
                         </div>
+
                         <h3 className={`font-quicksand font-bold text-base text-[#1b1c1c] ${isCompleted ? "line-through text-[#727785]" : ""}`}>
                           {assignment.title}
                         </h3>
 
                         {assignment.description && (
-                          <p className="text-xs text-[#414754] my-2 bg-[#f5f3f3] p-2.5 rounded-xl border border-[#eae8e7]/60">
+                          <p className="text-xs text-[#414754] my-2 bg-[#fbf9f8] p-2.5 rounded-2xl border border-[#eae8e7]">
                             {assignment.description}
                           </p>
                         )}
@@ -1172,54 +1079,38 @@ export default function StudentDashboard() {
                           </a>
                         )}
 
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-[#727785] flex items-center gap-1">
-                            <span className="material-symbols-outlined text-sm">school</span>
-                            <span>{assignment.section}</span>
-                          </p>
-                          <p className="text-xs text-[#727785] flex items-center gap-1">
-                            <span className="material-symbols-outlined text-sm">event</span>
-                            <span>Due: {assignment.dueDate}</span>
-                          </p>
+                        <div className="mt-2 text-xs text-[#727785] space-y-0.5">
+                          <p>Section: {assignment.section}</p>
+                          <p className="font-semibold text-[#ac3509]">Due: {assignment.dueDate}</p>
                         </div>
 
                         {!isCompleted && (
                           <div className="mt-3 pt-2 border-t border-[#eae8e7]">
                             <label className="block text-[11px] font-semibold text-[#414754] mb-1">
-                              Attach Completed Work (PDF, Image, Word) (Optional)
+                              Attach Completed Work (PDF, Image, Doc)
                             </label>
                             <input
                               type="file"
                               accept="image/*,.pdf,.doc,.docx"
-                              className="w-full text-xs text-[#727785] file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer"
+                              className="w-full text-xs text-[#727785] file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer"
                               onChange={(e) => handleFileChange(assignment.id, e.target.files?.[0] || null)}
                             />
                           </div>
                         )}
                       </div>
 
-                      <div className="pt-3 border-t border-[#eae8e7]">
-                        <button
-                          onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
-                          disabled={uploadingId === assignment.id}
-                          className={`w-full py-2.5 rounded-xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50 ${
-                            isCompleted
-                              ? "bg-[#f5f3f3] text-[#414754] hover:bg-[#eae8e7]"
-                              : "bg-[#005bbf] text-white hover:bg-[#004493]"
-                          }`}
-                        >
-                          <span className="material-symbols-outlined text-base">
-                            {isCompleted ? "undo" : "check_circle"}
-                          </span>
-                          <span>
-                            {uploadingId === assignment.id
-                              ? "Uploading Attachment..."
-                              : isCompleted
-                              ? "Mark Incomplete"
-                              : "Mark as Complete"}
-                          </span>
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
+                        disabled={uploadingId === assignment.id}
+                        className={`w-full py-2.5 rounded-2xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                          isCompleted ? "bg-[#f5f3f3] text-[#414754]" : "bg-[#005bbf] text-white hover:bg-[#004493]"
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-base">
+                          {isCompleted ? "undo" : "check_circle"}
+                        </span>
+                        <span>{isCompleted ? "Mark Incomplete" : "Mark as Complete"}</span>
+                      </button>
                     </div>
                   );
                 })}
@@ -1228,62 +1119,119 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* 🏫 NAV VIEW: MY SECTION (WITH SEEN READ RECEIPTS & TYPING INDICATORS) */}
+        {/* 📅 VIEW 3: CLASSES (LIVE GOOGLE MEET SESSIONS) */}
+        {activeNav === "classes" && (
+          <div className="space-y-5">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+                  Scheduled Live Classes ({meetings.length})
+                </h2>
+                <p className="text-xs text-[#727785]">Join your virtual sessions hosted on Google Meet.</p>
+              </div>
+            </div>
+
+            {meetings.length === 0 ? (
+              <div className="bg-white rounded-3xl p-10 text-center border border-[#eae8e7]">
+                <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">event_busy</span>
+                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Classes Scheduled</h3>
+                <p className="text-xs text-[#727785] mt-1">Your teacher has not scheduled any live meetings yet.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {meetings.map((meet) => {
+                  const { month, day } = parseMeetingDate(meet.date);
+                  return (
+                    <div
+                      key={meet.id}
+                      className="bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-3">
+                          <span className="bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                            <span className="material-symbols-outlined text-xs">videocam</span>
+                            Live Google Meet
+                          </span>
+                          <span className="text-[11px] text-[#727785] font-semibold">{meet.date}</span>
+                        </div>
+
+                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-2">{meet.topic}</h3>
+
+                        <div className="flex items-center gap-3 p-3 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]">
+                          <div className="w-12 h-12 rounded-xl bg-[#005bbf] text-white flex flex-col items-center justify-center font-quicksand shrink-0">
+                            <span className="text-[9px] uppercase font-bold">{month}</span>
+                            <span className="text-base font-bold leading-tight">{day}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-[#1b1c1c]">
+                              {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
+                            </p>
+                            <p className="text-[11px] text-[#727785]">
+                              {meet.studentName ? `Session for: ${meet.studentName}` : "General Class Session"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <a
+                        href={meet.meetLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-2.5 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-base">videocam</span>
+                        <span>Join Google Meet</span>
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 🏫 VIEW 4: MY SECTION & CLASSMATES */}
         {activeNav === "sections" && (
           <div className="space-y-6">
-            {/* Section Banner */}
-            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-3xl">school</span>
-                </div>
-                <div>
-                  <h2 className="font-quicksand font-bold text-xl sm:text-2xl text-[#1b1c1c]">
-                    {assignedSection ? `Section: ${assignedSection}` : "No Section Assigned"}
-                  </h2>
-                  <p className="text-xs sm:text-sm text-[#727785]">
-                    {assignedSection
-                      ? "You are registered in this academic section."
-                      : "Ask your teacher to assign you to a section from the Teacher Dashboard."}
-                  </p>
-                </div>
+            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-3xl">school</span>
+              </div>
+              <div>
+                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+                  {assignedSection ? `Section: ${assignedSection}` : "No Section Assigned"}
+                </h2>
+                <p className="text-xs text-[#727785]">
+                  {assignedSection
+                    ? "Connect with your classmates and teachers."
+                    : "Ask your teacher to assign you to a section."}
+                </p>
               </div>
             </div>
 
             {assignedSection && currentSectionId ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* 👥 Left Panel: Group Members */}
-                <div className="lg:col-span-4 bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-sm flex flex-col justify-between">
+                {/* Left Panel: Group Members */}
+                <div className="lg:col-span-4 bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-4">
-                      <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[#005bbf]">groups</span>
-                        Group Members
-                      </h3>
-                      <span className="text-[10px] bg-[#005bbf]/10 text-[#005bbf] font-bold px-2 py-0.5 rounded-full">
-                        Section {assignedSection}
-                      </span>
-                    </div>
+                    <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c] pb-3 border-b border-[#eae8e7] mb-3 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[#005bbf]">groups</span>
+                      Class Members
+                    </h3>
 
-                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                      {/* Teacher Badge */}
-                      <div className="flex items-center gap-3 p-2.5 bg-[#f5f3f3] rounded-2xl border border-[#005bbf]/20">
-                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                          <span className="material-symbols-outlined text-lg">school</span>
+                    <div className="space-y-2.5 max-h-[380px] overflow-y-auto">
+                      <div className="flex items-center gap-3 p-2.5 bg-[#fbf9f8] rounded-2xl border border-[#005bbf]/20">
+                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                          <span className="material-symbols-outlined text-base">school</span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c] truncate">
-                            Class Teacher
-                          </p>
-                          <span className="text-[10px] text-[#005bbf] font-semibold block">
-                            Instructor &amp; Moderator
-                          </span>
+                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c]">Class Teacher</p>
+                          <span className="text-[10px] text-[#005bbf] font-semibold">Moderator</span>
                         </div>
                       </div>
 
-                      {/* Current Student (You) */}
-                      <div className="flex items-center gap-3 p-2.5 bg-[#f5f3f3] rounded-2xl border border-[#eae8e7]">
-                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden shadow-xs">
+                      <div className="flex items-center gap-3 p-2.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]">
+                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                           {userImage && !imageError ? (
                             <Image
                               src={userImage}
@@ -1299,78 +1247,45 @@ export default function StudentDashboard() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c] truncate">
-                            {rawName} (You)
-                          </p>
-                          <span className="text-[10px] text-[#0f9d58] font-semibold block">
-                            Enrolled Student
-                          </span>
+                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c]">{rawName} (You)</p>
+                          <span className="text-[10px] text-[#0f9d58] font-semibold">Student</span>
                         </div>
                       </div>
                     </div>
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-[#eae8e7]">
-                    <p className="text-[11px] text-[#727785] text-center">
-                      Only authorized section members can view and chat here.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-[#727785] text-center pt-3 border-t border-[#eae8e7]">
+                    Section members only.
+                  </p>
                 </div>
 
-                {/* 💬 Right Panel: Section Group Chat */}
-                <div className="lg:col-span-8 flex flex-col h-[520px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-sm">
-                  {/* Chat Header */}
-                  <div className="bg-white border-b border-[#eae8e7] p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center font-bold text-lg">
-                        <span className="material-symbols-outlined text-xl">forum</span>
-                      </div>
-                      <div>
-                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] leading-tight">
-                          {assignedSection} Class Discussion
-                        </h3>
-                        <p className="text-xs text-[#727785]">
-                          Real-time section messages
-                        </p>
-                      </div>
-                    </div>
+                {/* Right Panel: Chat Stream */}
+                <div className="lg:col-span-8 flex flex-col h-[520px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-xs">
+                  <div className="bg-white border-b border-[#eae8e7] p-4 flex items-center gap-3">
+                    <span className="material-symbols-outlined text-[#005bbf]">forum</span>
+                    <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c]">
+                      {assignedSection} Class Discussion
+                    </h3>
                   </div>
 
-                  {/* Chat Messages Feed */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]">
                     {sectionChatMessages.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center py-10">
-                        <span className="material-symbols-outlined text-3xl text-[#727785] mb-2">
-                          chat_bubble_outline
-                        </span>
-                        <p className="text-xs text-[#727785]">
-                          No messages yet. Send a message to start the conversation with your class!
-                        </p>
+                      <div className="h-full flex flex-col items-center justify-center text-center text-[#727785]">
+                        <span className="material-symbols-outlined text-3xl mb-1">chat_bubble_outline</span>
+                        <p className="text-xs">No messages yet. Say hi to your class!</p>
                       </div>
                     ) : (
                       sectionChatMessages.map((msg) => {
                         const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
-                        const isTeacherMsg = msg.senderRole === "TEACHER" || msg.senderRole === "teacher";
-                        const isSeen = msg.seenBy && msg.seenBy.length > 1;
-
-                        const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        });
-
                         return (
-                          <div
-                            key={msg.id}
-                            className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}
-                          >
+                          <div key={msg.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
                             {!isMe && (
-                              <div className="w-8 h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden shadow-xs">
+                              <div className="w-7 h-7 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                                 {msg.senderAvatar ? (
                                   <Image
                                     src={msg.senderAvatar}
                                     alt={msg.senderName}
-                                    width={32}
-                                    height={32}
+                                    width={28}
+                                    height={28}
                                     unoptimized
                                     referrerPolicy="no-referrer"
                                     className="w-full h-full object-cover"
@@ -1380,91 +1295,26 @@ export default function StudentDashboard() {
                                 )}
                               </div>
                             )}
-
                             <div
-                              className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs relative shadow-2xs ${
-                                isMe
-                                  ? "bg-[#005bbf] text-white rounded-tr-none"
-                                  : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                              className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs ${
+                                isMe ? "bg-[#005bbf] text-white rounded-tr-none" : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
                               }`}
                             >
-                              {!isMe && (
-                                <p className="font-bold text-[11px] mb-1 text-[#005bbf] flex items-center gap-1">
-                                  {msg.senderName}
-                                  {isTeacherMsg ? (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] bg-[#005bbf]/10 text-[#005bbf] px-1.5 py-0.2 rounded-full font-bold">
-                                      <span className="material-symbols-outlined text-[12px]">school</span> Teacher
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded-full font-bold">
-                                      <span className="material-symbols-outlined text-[12px]">person</span> Student
-                                    </span>
-                                  )}
-                                </p>
-                              )}
-                              <p className="whitespace-pre-wrap break-words leading-relaxed text-xs">
-                                {msg.text}
-                              </p>
-                              
-                              {/* Message Time & Seen Receipt Indicator */}
-                              <div
-                                className={`flex items-center justify-end gap-1 text-[9px] mt-1 font-medium ${
-                                  isMe ? "text-white/80" : "text-[#727785]"
-                                }`}
-                              >
-                                <span>{formattedTime}</span>
-                                {isMe && (
-                                  <span
-                                    className={`material-symbols-outlined text-xs ${
-                                      isSeen ? "text-sky-200" : "text-white/60"
-                                    }`}
-                                    title={isSeen ? "Seen" : "Sent"}
-                                  >
-                                    {isSeen ? "done_all" : "done"}
-                                  </span>
-                                )}
-                              </div>
+                              {!isMe && <p className="font-bold text-[10px] text-[#005bbf] mb-0.5">{msg.senderName}</p>}
+                              <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                             </div>
                           </div>
                         );
                       })
                     )}
-
-                    {/* ✍️ Live Typing Indicator with Profile Icon */}
-                    {activeTypers.length > 0 && (
-                      <div className="flex items-center gap-2 p-2.5 bg-white border border-[#eae8e7] rounded-2xl w-fit text-xs text-[#005bbf] shadow-2xs animate-fadeIn">
-                        <div className="w-6 h-6 rounded-full bg-[#005bbf] text-white overflow-hidden shrink-0 flex items-center justify-center font-bold text-[10px]">
-                          {activeTypers[0].userAvatar ? (
-                            <Image
-                              src={activeTypers[0].userAvatar}
-                              alt={activeTypers[0].userName}
-                              width={24}
-                              height={24}
-                              unoptimized
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            activeTypers[0].userName.charAt(0).toUpperCase()
-                          )}
-                        </div>
-                        <span className="font-semibold text-xs text-[#1b1c1c]">
-                          {activeTypers[0].userName} is typing...
-                        </span>
-                        <span className="material-symbols-outlined text-xs text-[#005bbf] animate-bounce">
-                          more_horiz
-                        </span>
-                      </div>
-                    )}
                     <div ref={chatEndRef} />
                   </div>
 
-                  {/* Chat Input */}
-                  <div className="bg-white p-3 border-t border-[#eae8e7] flex items-center gap-2">
+                  <div className="p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white">
                     <input
                       type="text"
                       placeholder="Type a message to your section..."
-                      className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                      className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2 text-xs focus:outline-none focus:border-[#005bbf]"
                       value={studentChatInput}
                       onChange={(e) => handleTypingInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSendStudentMessage()}
@@ -1472,7 +1322,7 @@ export default function StudentDashboard() {
                     <button
                       onClick={handleSendStudentMessage}
                       disabled={!studentChatInput.trim()}
-                      className="bg-[#005bbf] hover:bg-[#004493] text-white px-5 py-2.5 rounded-full text-xs font-quicksand font-bold transition-colors disabled:opacity-40 shrink-0"
+                      className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 py-2 rounded-full text-xs font-quicksand font-bold disabled:opacity-40"
                     >
                       Send
                     </button>
@@ -1481,53 +1331,27 @@ export default function StudentDashboard() {
               </div>
             ) : (
               <div className="bg-white rounded-3xl p-8 text-center border border-[#eae8e7]">
-                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">
-                  chat_error
-                </span>
-                <p className="text-xs text-[#727785]">
-                  Group chat will unlock once your teacher assigns you to an active section.
-                </p>
+                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">chat_error</span>
+                <p className="text-xs text-[#727785]">Section chat will unlock once assigned to a class.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* NAV VIEW: MY TUTORS */}
-        {activeNav === "tutors" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-3xl p-6 border border-[#e4e2e1] flex items-center gap-4">
-              <Image
-                src={messages[0].avatar}
-                alt="Ms. Sarah"
-                width={56}
-                height={56}
-                unoptimized
-                referrerPolicy="no-referrer"
-                className="w-14 h-14 rounded-full object-cover border-2 border-[#005bbf] shrink-0"
-              />
-              <div>
-                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">Ms. Sarah</h3>
-                <p className="text-xs text-[#727785]">Math Tutor</p>
-                <span className="inline-block mt-2 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  Active Tutor
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* NAV VIEW: RESOURCES */}
+        {/* 📚 VIEW 5: RESOURCES */}
         {activeNav === "resources" && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl p-4 border border-[#e4e2e1] flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[#005bbf]">description</span>
+            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex items-center justify-between">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">description</span>
+                </div>
                 <div>
-                  <h4 className="font-quicksand font-bold text-sm">Alphabet Practice Worksheet</h4>
-                  <p className="text-xs text-[#727785]">PDF • Printable trace guide</p>
+                  <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Alphabet &amp; Phonics Worksheet</h4>
+                  <p className="text-xs text-[#727785]">PDF Printable trace guide</p>
                 </div>
               </div>
-              <button className="bg-[#f5f3f3] text-[#005bbf] px-4 py-1.5 rounded-full text-xs font-bold font-quicksand hover:bg-[#005bbf]/10">
+              <button className="bg-[#f5f3f3] text-[#005bbf] px-4 py-2 rounded-full text-xs font-quicksand font-bold hover:bg-[#005bbf]/10">
                 Download
               </button>
             </div>
@@ -1540,9 +1364,9 @@ export default function StudentDashboard() {
         showSettingsModal,
         () => setShowSettingsModal(false),
         "Student Settings",
-        <div className="space-y-5 sm:space-y-6">
-          <div className="p-3.5 sm:p-4 bg-[#f5f3f3] rounded-2xl flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-lg overflow-hidden border-2 border-[#005bbf] shrink-0">
+        <div className="space-y-5">
+          <div className="p-4 bg-[#fbf9f8] rounded-2xl flex items-center gap-3 border border-[#eae8e7]">
+            <div className="w-12 h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-lg overflow-hidden shrink-0">
               {userImage && !imageError ? (
                 <Image
                   src={userImage}
@@ -1551,7 +1375,6 @@ export default function StudentDashboard() {
                   height={48}
                   unoptimized
                   referrerPolicy="no-referrer"
-                  onError={() => setImageError(true)}
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -1560,17 +1383,12 @@ export default function StudentDashboard() {
             </div>
             <div className="min-w-0">
               <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">{rawName}</h4>
-              <p className="text-xs text-[#727785] truncate">{session?.user?.email || "student@happytoddles.com"}</p>
-              
-              <span className="inline-block mt-1 bg-[#005bbf]/10 text-[#005bbf] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {assignedSection ? `Section: ${assignedSection}` : "Active Student (No Section)"}
-              </span>
+              <p className="text-xs text-[#727785] truncate">{session?.user?.email}</p>
             </div>
           </div>
 
           <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
             <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
-
             <label className="flex items-center justify-between cursor-pointer py-1">
               <span className="text-xs text-[#414754] font-medium">Class Notifications</span>
               <input
@@ -1580,7 +1398,6 @@ export default function StudentDashboard() {
                 className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
               />
             </label>
-
             <label className="flex items-center justify-between cursor-pointer py-1">
               <span className="text-xs text-[#414754] font-medium">Sound Effects</span>
               <input
@@ -1595,7 +1412,7 @@ export default function StudentDashboard() {
           <div className="pt-3 border-t border-[#eae8e7]">
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors active:scale-95"
+              className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-2 transition-colors"
             >
               <span className="material-symbols-outlined text-base">logout</span>
               <span>Sign Out</span>
