@@ -59,6 +59,23 @@ type SectionMessage = {
   createdAt: string;
 };
 
+type DirectMessage = {
+  id: string;
+  studentId: string;
+  studentEmail: string;
+  studentName: string;
+  senderEmail: string;
+  senderName: string;
+  senderRole: string;
+  senderAvatar?: string | null;
+  text?: string | null;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentType?: string | null;
+  read: boolean;
+  createdAt: string;
+};
+
 type Invite = {
   id: string;
   name: string;
@@ -100,25 +117,20 @@ export default function TeacherDashboard() {
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState<
-    "overview" | "approvals" | "students" | "assignments" | "sections" | "schedule"
+    "overview" | "approvals" | "students" | "assignments" | "sections" | "schedule" | "direct_messages"
   >("overview");
 
-  // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  // Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
-  const [defaultMeetLink, setDefaultMeetLink] = useState(
-    "https://meet.google.com/new"
-  );
+  const [defaultMeetLink, setDefaultMeetLink] = useState("https://meet.google.com/new");
 
   const [students, setStudents] = useState<Student[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
 
-  // Assignments State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [showAddAssignment, setShowAddAssignment] = useState(false);
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
@@ -134,22 +146,31 @@ export default function TeacherDashboard() {
     dueDate: "",
   });
 
-  // Sections State
   const [sections, setSections] = useState<Section[]>([]);
   const [showAddSection, setShowAddSection] = useState(false);
   const [newSection, setNewSection] = useState({ name: "" });
 
-  // Assign Student to Section State
   const [targetSectionForAssign, setTargetSectionForAssign] = useState<Section | null>(null);
   const [selectedStudentToAssign, setSelectedStudentToAssign] = useState<string>("");
 
-  // Section Group Chat State
   const [chatSection, setChatSection] = useState<Section | null>(null);
   const [chatMessages, setChatMessages] = useState<SectionMessage[]>([]);
   const [newMessageText, setNewMessageText] = useState("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Database Meetings State
+  // 💬 Direct Chat State
+  const [allDirectMessages, setAllDirectMessages] = useState<DirectMessage[]>([]);
+  const [selectedChatStudent, setSelectedChatStudent] = useState<Student | null>(null);
+  const [teacherDirectInput, setTeacherDirectInput] = useState("");
+  const [teacherDirectFile, setTeacherDirectFile] = useState<File | null>(null);
+  const [isSendingTeacherDirect, setIsSendingTeacherDirect] = useState(false);
+  const [searchStudentTerm, setSearchStudentTerm] = useState("");
+
+  const teacherChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const prevDirectMsgLengthRef = useRef<number>(0);
+  const prevActiveChatStudentIdRef = useRef<string | null>(null);
+
+  // Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -166,7 +187,6 @@ export default function TeacherDashboard() {
     meetLink: "",
   });
 
-  // Helper to ensure teacher joins with host privileges
   const getTeacherHostUrl = (link: string) => {
     const teacherEmail = "happytoddlers18@gmail.com";
     const targetLink = link || defaultMeetLink || "https://meet.google.com/new";
@@ -187,9 +207,180 @@ export default function TeacherDashboard() {
     }
   };
 
+  // Smart scroll only on thread switch or when a new message is sent/received
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+    if (!selectedChatStudent) return;
+
+    const studentMsgs = allDirectMessages.filter(
+      (m) => m.studentId === selectedChatStudent.id || m.studentEmail?.toLowerCase() === selectedChatStudent.email.toLowerCase()
+    );
+    const hasStudentChanged = prevActiveChatStudentIdRef.current !== selectedChatStudent.id;
+    const isNewOutgoing = studentMsgs.length > prevDirectMsgLengthRef.current;
+
+    if (hasStudentChanged || isNewOutgoing) {
+      if (teacherChatContainerRef.current) {
+        teacherChatContainerRef.current.scrollTop = teacherChatContainerRef.current.scrollHeight;
+      }
+      prevDirectMsgLengthRef.current = studentMsgs.length;
+      prevActiveChatStudentIdRef.current = selectedChatStudent.id;
+    }
+  }, [allDirectMessages, selectedChatStudent]);
+
+  const handleSelectStudentThread = async (st: Student) => {
+    setSelectedChatStudent(st);
+
+    setAllDirectMessages((prev) =>
+      prev.map((m) =>
+        m.studentId === st.id || m.studentEmail?.toLowerCase() === st.email.toLowerCase()
+          ? { ...m, read: true }
+          : m
+      )
+    );
+
+    try {
+      await fetch("/api/direct-messages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: st.id, studentEmail: st.email }),
+      });
+    } catch (err) {
+      console.error("Failed to mark messages as read:", err);
+    }
+  };
+
+  useEffect(() => {
+    async function fetchTeacherDirectMessages() {
+      try {
+        const res = await fetch("/api/direct-messages");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages) {
+            setAllDirectMessages((prev) => {
+              if (selectedChatStudent) {
+                return data.messages.map((m: DirectMessage) =>
+                  m.studentId === selectedChatStudent.id ||
+                  m.studentEmail?.toLowerCase() === selectedChatStudent.email.toLowerCase()
+                    ? { ...m, read: true }
+                    : m
+                );
+              }
+              return data.messages;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load teacher direct messages:", err);
+      }
+    }
+
+    fetchTeacherDirectMessages();
+    const interval = setInterval(fetchTeacherDirectMessages, 3000);
+    return () => clearInterval(interval);
+  }, [selectedChatStudent]);
+
+  const handleDeleteDirectMessage = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
+
+    try {
+      const res = await fetch("/api/direct-messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setAllDirectMessages((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete message.");
+      }
+    } catch (err) {
+      console.error("Error deleting message:", err);
+    }
+  };
+
+  const handleDeleteSectionMessage = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this class discussion message?")) return;
+
+    try {
+      const res = await fetch("/api/sections/messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setChatMessages((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete message.");
+      }
+    } catch (err) {
+      console.error("Error deleting section message:", err);
+    }
+  };
+
+  const handleTeacherSendDirectMessage = async () => {
+    if ((!teacherDirectInput.trim() && !teacherDirectFile) || !selectedChatStudent) return;
+
+    setIsSendingTeacherDirect(true);
+    let uploadedUrl: string | null = null;
+    let fileName: string | null = null;
+    let fileType: string | null = null;
+
+    if (teacherDirectFile) {
+      fileName = teacherDirectFile.name;
+      if (teacherDirectFile.type.startsWith("image/")) {
+        fileType = "image";
+      } else if (teacherDirectFile.type.includes("pdf")) {
+        fileType = "pdf";
+      } else {
+        fileType = "document";
+      }
+
+      try {
+        uploadedUrl = await uploadAssignmentFile(teacherDirectFile);
+      } catch (err) {
+        console.error("Failed to upload teacher file:", err);
+      }
+    }
+
+    const messageText = teacherDirectInput.trim();
+    setTeacherDirectInput("");
+    setTeacherDirectFile(null);
+
+    try {
+      const res = await fetch("/api/direct-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: selectedChatStudent.id,
+          text: messageText || null,
+          attachmentUrl: uploadedUrl,
+          attachmentName: fileName,
+          attachmentType: fileType,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setAllDirectMessages((prev) => [...prev, data.message]);
+          setTimeout(() => {
+            if (teacherChatContainerRef.current) {
+              teacherChatContainerRef.current.scrollTop = teacherChatContainerRef.current.scrollHeight;
+            }
+          }, 50);
+        }
+      } else {
+        alert("Failed to send message to student.");
+      }
+    } catch (err) {
+      console.error("Error sending teacher message:", err);
+    } finally {
+      setIsSendingTeacherDirect(false);
+    }
+  };
 
   useEffect(() => {
     if (!chatSection) return;
@@ -799,6 +990,10 @@ export default function TeacherDashboard() {
     }
   };
 
+  const unreadDirectMessagesCount = allDirectMessages.filter(
+    (m) => m.senderRole === "STUDENT" && !m.read
+  ).length;
+
   const navItems = [
     { id: "overview" as const, icon: "dashboard", label: "Overview" },
     {
@@ -808,6 +1003,12 @@ export default function TeacherDashboard() {
       badge: invites.length,
     },
     { id: "students" as const, icon: "groups", label: "Students" },
+    {
+      id: "direct_messages" as const,
+      icon: "chat",
+      label: "Messages",
+      badge: unreadDirectMessagesCount,
+    },
     { id: "assignments" as const, icon: "assignment", label: "Assignments" },
     { id: "sections" as const, icon: "school", label: "Sections" },
     { id: "schedule" as const, icon: "calendar_today", label: "Schedule" },
@@ -833,6 +1034,12 @@ export default function TeacherDashboard() {
     if (scheduleFilter === "completed") return m.status === "completed";
     return true;
   });
+
+  const filteredChatStudents = students.filter(
+    (s) =>
+      s.name.toLowerCase().includes(searchStudentTerm.toLowerCase()) ||
+      s.email.toLowerCase().includes(searchStudentTerm.toLowerCase())
+  );
 
   const renderModal = (
     open: boolean,
@@ -862,10 +1069,9 @@ export default function TeacherDashboard() {
 
   return (
     <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row antialiased">
-      {/* 🧭 Executive Slim Sidebar */}
+      {/* 🧭 Desktop Sidebar */}
       <aside className="hidden md:flex flex-col justify-between p-5 border-r border-[#eae8e7] bg-white h-screen w-72 fixed left-0 top-0 z-40 shadow-[1px_0_10px_rgba(0,0,0,0.02)]">
         <div>
-          {/* Brand Header */}
           <div className="flex items-center gap-3 px-2 mb-8">
             <div className="w-10 h-10 rounded-2xl bg-[#005bbf] text-white flex items-center justify-center shadow-sm">
               <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -880,7 +1086,6 @@ export default function TeacherDashboard() {
             </div>
           </div>
 
-          {/* Teacher Profile Card */}
           <div className="p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]/80 flex items-center gap-3 mb-6">
             <div className="w-12 h-12 rounded-full border-2 border-[#005bbf] p-0.5 bg-white text-[#005bbf] flex items-center justify-center overflow-hidden font-quicksand font-bold text-lg shrink-0">
               {userImage && !imageError ? (
@@ -907,14 +1112,18 @@ export default function TeacherDashboard() {
             </div>
           </div>
 
-          {/* Navigation Links */}
           <nav className="flex flex-col gap-1.5">
             {navItems.map((item) => {
               const isActive = activeView === item.id;
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveView(item.id)}
+                  onClick={() => {
+                    setActiveView(item.id);
+                    if (item.id === "direct_messages" && students.length > 0 && !selectedChatStudent) {
+                      handleSelectStudentThread(students[0]);
+                    }
+                  }}
                   className={`flex items-center gap-3.5 rounded-2xl px-4 py-3 font-quicksand font-bold text-xs transition-all text-left ${
                     isActive
                       ? "bg-[#005bbf] text-white shadow-sm"
@@ -943,7 +1152,6 @@ export default function TeacherDashboard() {
           </nav>
         </div>
 
-        {/* Sidebar Quick Action */}
         <div className="p-4 bg-[#f5f3f3] rounded-3xl border border-[#eae8e7] space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-quicksand font-bold text-[#1b1c1c]">Live Classroom</span>
@@ -1042,6 +1250,9 @@ export default function TeacherDashboard() {
                     onClick={() => {
                       setActiveView(item.id);
                       setMobileMenuOpen(false);
+                      if (item.id === "direct_messages" && students.length > 0 && !selectedChatStudent) {
+                        handleSelectStudentThread(students[0]);
+                      }
                     }}
                     className={`flex items-center gap-3 rounded-xl px-4 py-3 font-quicksand font-bold text-xs text-left ${
                       activeView === item.id ? "bg-[#005bbf] text-white" : "text-[#414754] hover:bg-[#f5f3f3]"
@@ -1073,15 +1284,15 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {/* 🚀 Main Workspace Content */}
+      {/* 🚀 Main Content */}
       <main className="flex-1 md:ml-72 p-4 sm:p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
-        {/* Top Header Glance */}
         <header className="hidden md:flex justify-between items-center bg-white p-4 sm:px-6 rounded-3xl border border-[#eae8e7] shadow-xs">
           <div>
             <h1 className="font-quicksand text-xl lg:text-2xl font-bold text-[#1b1c1c]">
               {activeView === "overview" && `Welcome, ${userName}! 👋`}
               {activeView === "approvals" && "Student Access Requests"}
               {activeView === "students" && "Enrolled Students Directory"}
+              {activeView === "direct_messages" && "Student Direct Messaging Hub"}
               {activeView === "assignments" && "Coursework & Assignments"}
               {activeView === "sections" && "Academic Sections & Cohorts"}
               {activeView === "schedule" && "Live Class Calendar & Meetings"}
@@ -1089,7 +1300,8 @@ export default function TeacherDashboard() {
             <p className="text-xs text-[#727785] mt-0.5">
               {activeView === "overview" && "Monitor daily schedules, pending approvals, and student progress."}
               {activeView === "approvals" && "Authorize or decline new Google account student registrations."}
-              {activeView === "students" && "Manage student profiles, grant access, or schedule one-on-one sessions."}
+              {activeView === "students" && "Manage student profiles, grant/revoke access, or schedule one-on-one sessions."}
+              {activeView === "direct_messages" && "View direct messages sent by students, review file attachments, and reply."}
               {activeView === "assignments" && "Create assignments, distribute learning material, and grade submissions."}
               {activeView === "sections" && "Organize cohorts and communicate through class section discussions."}
               {activeView === "schedule" && "Host Google Meet sessions and manage virtual class timetables."}
@@ -1150,12 +1362,10 @@ export default function TeacherDashboard() {
           </div>
         </header>
 
-        {/* 🌟 VIEW 1: OVERVIEW (REDESIGNED BENTO COMMAND CENTER) */}
+        {/* 🌟 VIEW 1: OVERVIEW */}
         {activeView === "overview" && (
           <div className="space-y-6">
-            {/* Bento Row 1: Hero Command Banner + Quick Stat Matrix */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Hero Banner */}
               <div className="lg:col-span-8 bg-gradient-to-br from-[#005bbf] to-[#004493] rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[220px]">
                 <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
                 <div>
@@ -1205,7 +1415,6 @@ export default function TeacherDashboard() {
                 </div>
               </div>
 
-              {/* 4-Cell Stats Matrix */}
               <div className="lg:col-span-4 grid grid-cols-2 gap-3.5">
                 <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
                   <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center mb-2">
@@ -1239,17 +1448,16 @@ export default function TeacherDashboard() {
 
                 <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
                   <div className="w-10 h-10 rounded-2xl bg-[#fe6f42]/10 text-[#fe6f42] flex items-center justify-center mb-2">
-                    <span className="material-symbols-outlined text-xl">assignment</span>
+                    <span className="material-symbols-outlined text-xl">chat</span>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{activeAssignmentsCount}</p>
-                    <p className="text-[11px] text-[#727785] font-semibold">Assignments</p>
+                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{unreadDirectMessagesCount}</p>
+                    <p className="text-[11px] text-[#727785] font-semibold">New Messages</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Pending Requests Alert Banner */}
             {invites.length > 0 && (
               <div className="bg-white rounded-3xl p-5 border border-[#ac3509]/20 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -1260,7 +1468,7 @@ export default function TeacherDashboard() {
                     <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c]">
                       {invites.length} Student Registration Request{invites.length === 1 ? "" : "s"} Awaiting Approval
                     </h3>
-                    <p className="text-xs text-[#727785]">Review and grant classroom access to new Google account sign-ups.</p>
+                    <p className="text-xs text-[#727785]">Review and grant classroom access to new student sign-ups.</p>
                   </div>
                 </div>
                 <button
@@ -1272,9 +1480,7 @@ export default function TeacherDashboard() {
               </div>
             )}
 
-            {/* Bento Row 2: Today's Schedule Timeline & Student Mastery */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Today's Schedule Live Hub */}
               <div className="lg:col-span-8 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-4">
@@ -1354,7 +1560,6 @@ export default function TeacherDashboard() {
                 </div>
               </div>
 
-              {/* Student Mastery & Progress Widget */}
               <div className="lg:col-span-4 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-4">
@@ -1392,7 +1597,322 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 📋 VIEW 2: STUDENT ACCESS REQUESTS */}
+        {/* 💬 VIEW 2: DIRECT STUDENT MESSAGES (MOBILE RESPONSIVE WITH BACK BUTTON) */}
+        {activeView === "direct_messages" && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">Student Direct Messages</h2>
+              <p className="text-xs text-[#727785]">Private 1-on-1 messages with student file attachments and review.</p>
+            </div>
+
+            <div className="flex flex-col md:flex-row h-[calc(100dvh-200px)] min-h-[520px] max-h-[700px] bg-white rounded-3xl border border-[#eae8e7] overflow-hidden shadow-xs">
+              {/* Left Student Column: On mobile, hidden when a chat is open */}
+              <div
+                className={`w-full md:w-80 shrink-0 border-r border-[#eae8e7] flex-col h-full bg-[#fbf9f8] ${
+                  selectedChatStudent ? "hidden md:flex" : "flex"
+                }`}
+              >
+                <div className="p-4 border-b border-[#eae8e7] bg-white space-y-3 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c] flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[#005bbf]">chat</span>
+                      Conversations
+                    </h3>
+                    <span className="text-xs font-bold bg-[#005bbf]/10 text-[#005bbf] px-2.5 py-0.5 rounded-full">
+                      {students.length}
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <span className="material-symbols-outlined text-xs text-[#727785] absolute left-3 top-2.5">
+                      search
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Search student..."
+                      className="w-full bg-[#f5f3f3] border border-[#eae8e7] rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-[#005bbf]"
+                      value={searchStudentTerm}
+                      onChange={(e) => setSearchStudentTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+                  {filteredChatStudents.length === 0 ? (
+                    <p className="text-xs text-[#727785] text-center py-10">No students found.</p>
+                  ) : (
+                    filteredChatStudents.map((st) => {
+                      const isSelected = selectedChatStudent?.id === st.id;
+                      const studentMsgs = allDirectMessages.filter(
+                        (m) => m.studentId === st.id || m.studentEmail?.toLowerCase() === st.email.toLowerCase()
+                      );
+                      const latestMsg = studentMsgs[studentMsgs.length - 1];
+                      const unreadCount = studentMsgs.filter(
+                        (m) => m.senderRole === "STUDENT" && !m.read
+                      ).length;
+
+                      return (
+                        <button
+                          key={st.id}
+                          onClick={() => handleSelectStudentThread(st)}
+                          className={`w-full p-3 rounded-2xl text-left transition-all flex items-center gap-3 border cursor-pointer ${
+                            isSelected
+                              ? "bg-[#005bbf] text-white border-[#005bbf] shadow-sm"
+                              : "bg-white text-[#1b1c1c] border-[#eae8e7] hover:border-[#005bbf]/30"
+                          }`}
+                        >
+                          <div className="relative shrink-0">
+                            <Image
+                              src={st.avatar}
+                              alt={st.name}
+                              width={40}
+                              height={40}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-10 h-10 rounded-xl object-cover border border-white/20"
+                            />
+                            {unreadCount > 0 && !isSelected && (
+                              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#ac3509] rounded-full border-2 border-white flex items-center justify-center text-[9px] text-white font-bold" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex justify-between items-center">
+                              <h4 className={`font-quicksand font-bold text-xs truncate ${isSelected ? "text-white" : "text-[#1b1c1c]"}`}>
+                                {st.name}
+                              </h4>
+                              {unreadCount > 0 && !isSelected && (
+                                <span className="bg-[#ac3509] text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0">
+                                  {unreadCount}
+                                </span>
+                              )}
+                            </div>
+                            <p className={`text-[11px] truncate mt-0.5 ${isSelected ? "text-white/80" : "text-[#727785]"}`}>
+                              {latestMsg ? (latestMsg.text || `📎 ${latestMsg.attachmentName || "Attachment"}`) : "No messages yet"}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Right Conversation Stream: On mobile, shown when a chat is open */}
+              <div
+                className={`flex-1 flex-col justify-between h-full min-w-0 bg-white ${
+                  selectedChatStudent ? "flex" : "hidden md:flex"
+                }`}
+              >
+                {selectedChatStudent ? (
+                  <>
+                    <div className="p-3.5 sm:p-4 border-b border-[#eae8e7] flex items-center justify-between bg-white shadow-2xs shrink-0">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        {/* 📱 Mobile Back Button */}
+                        <button
+                          onClick={() => setSelectedChatStudent(null)}
+                          className="md:hidden p-1.5 -ml-1 text-[#727785] hover:text-[#005bbf] rounded-xl hover:bg-[#f5f3f3] transition-colors"
+                          title="Back to conversations"
+                        >
+                          <span className="material-symbols-outlined text-xl block">arrow_back</span>
+                        </button>
+
+                        <Image
+                          src={selectedChatStudent.avatar}
+                          alt={selectedChatStudent.name}
+                          width={36}
+                          height={36}
+                          unoptimized
+                          referrerPolicy="no-referrer"
+                          className="w-9 h-9 rounded-xl object-cover border border-[#005bbf] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">
+                            {selectedChatStudent.name}
+                          </h4>
+                          <p className="text-[10px] sm:text-[11px] text-[#727785] truncate">{selectedChatStudent.email}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => openScheduleForStudent(selectedChatStudent.id)}
+                        className="bg-[#005bbf]/10 text-[#005bbf] hover:bg-[#005bbf]/20 px-2.5 sm:px-3.5 py-1.5 rounded-xl font-quicksand font-bold text-xs flex items-center gap-1 shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-sm">videocam</span>
+                        <span className="hidden sm:inline">Schedule Call</span>
+                      </button>
+                    </div>
+
+                    {/* Chat Messages */}
+                    <div
+                      ref={teacherChatContainerRef}
+                      className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3.5 bg-[#fbf9f8]"
+                    >
+                      {allDirectMessages.filter(
+                        (m) => m.studentId === selectedChatStudent.id || m.studentEmail?.toLowerCase() === selectedChatStudent.email.toLowerCase()
+                      ).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center text-[#727785] py-10">
+                          <span className="material-symbols-outlined text-3xl text-[#005bbf] mb-1">chat</span>
+                          <p className="text-xs">No direct messages exchanged with {selectedChatStudent.name} yet.</p>
+                        </div>
+                      ) : (
+                        allDirectMessages
+                          .filter(
+                            (m) => m.studentId === selectedChatStudent.id || m.studentEmail?.toLowerCase() === selectedChatStudent.email.toLowerCase()
+                          )
+                          .map((msg) => {
+                            const isMe = msg.senderRole === "TEACHER";
+                            const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            });
+
+                            return (
+                              <div key={msg.id} className={`flex items-end gap-2.5 group ${isMe ? "justify-end" : "justify-start"}`}>
+                                {!isMe && (
+                                  <Image
+                                    src={selectedChatStudent.avatar}
+                                    alt={selectedChatStudent.name}
+                                    width={28}
+                                    height={28}
+                                    unoptimized
+                                    referrerPolicy="no-referrer"
+                                    className="w-7 h-7 rounded-xl object-cover border border-[#005bbf] shrink-0"
+                                  />
+                                )}
+
+                                {/* 🗑️ Delete Button appears ONLY on sender's messages */}
+                                {isMe && (
+                                  <button
+                                    onClick={() => handleDeleteDirectMessage(msg.id)}
+                                    className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all"
+                                    title="Delete Message"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">delete</span>
+                                  </button>
+                                )}
+
+                                <div
+                                  className={`max-w-[80%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs shadow-2xs space-y-2 ${
+                                    isMe
+                                      ? "bg-[#005bbf] text-white rounded-tr-none"
+                                      : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                                  }`}
+                                >
+                                  {!isMe && (
+                                    <p className="font-quicksand font-bold text-[11px] text-[#005bbf]">
+                                      {selectedChatStudent.name}
+                                    </p>
+                                  )}
+
+                                  {msg.text && (
+                                    <p className="whitespace-pre-wrap break-words leading-relaxed text-xs sm:text-[13px]">
+                                      {msg.text}
+                                    </p>
+                                  )}
+
+                                  {msg.attachmentUrl && (
+                                    <div className={`p-2.5 rounded-xl border ${isMe ? "bg-white/10 border-white/20" : "bg-[#fbf9f8] border-[#eae8e7]"}`}>
+                                      {msg.attachmentType === "image" ? (
+                                        <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                          <Image
+                                            src={msg.attachmentUrl}
+                                            alt={msg.attachmentName || "Attached Image"}
+                                            width={240}
+                                            height={160}
+                                            unoptimized
+                                            className="rounded-lg object-cover max-h-48 w-full border border-black/5"
+                                          />
+                                          <span className="text-[10px] mt-1 inline-flex items-center gap-1 font-semibold underline">
+                                            <span className="material-symbols-outlined text-xs">image</span>
+                                            {msg.attachmentName || "View Image"}
+                                          </span>
+                                        </a>
+                                      ) : (
+                                        <a
+                                          href={msg.attachmentUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 font-quicksand font-bold text-xs hover:underline"
+                                        >
+                                          <span className="material-symbols-outlined text-lg">
+                                            {msg.attachmentType === "pdf" ? "picture_as_pdf" : "description"}
+                                          </span>
+                                          <span className="truncate max-w-[200px]">{msg.attachmentName || "View Document"}</span>
+                                          <span className="material-symbols-outlined text-xs">open_in_new</span>
+                                        </a>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className={`text-[9px] text-right font-medium ${isMe ? "text-white/80" : "text-[#727785]"}`}>
+                                    {formattedTime}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+
+                    {teacherDirectFile && (
+                      <div className="px-4 py-2 bg-[#f5f3f3] border-t border-[#eae8e7] flex items-center justify-between text-xs shrink-0">
+                        <div className="flex items-center gap-2 text-[#005bbf] font-semibold truncate">
+                          <span className="material-symbols-outlined text-base">attach_file</span>
+                          <span className="truncate max-w-xs">{teacherDirectFile.name}</span>
+                        </div>
+                        <button
+                          onClick={() => setTeacherDirectFile(null)}
+                          className="text-[#ac3509] hover:bg-[#ac3509]/10 p-1 rounded-full"
+                          title="Remove file"
+                        >
+                          <span className="material-symbols-outlined text-base">close</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white shrink-0">
+                      <label className="p-2.5 rounded-full hover:bg-[#f5f3f3] text-[#005bbf] cursor-pointer transition-colors shrink-0" title="Attach image, PDF, or document">
+                        <span className="material-symbols-outlined text-xl block">attach_file</span>
+                        <input
+                          type="file"
+                          accept="image/*,.pdf,.doc,.docx"
+                          className="hidden"
+                          onChange={(e) => setTeacherDirectFile(e.target.files?.[0] || null)}
+                        />
+                      </label>
+
+                      <input
+                        type="text"
+                        placeholder={`Reply to ${selectedChatStudent.name}...`}
+                        className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                        value={teacherDirectInput}
+                        onChange={(e) => setTeacherDirectInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleTeacherSendDirectMessage()}
+                      />
+
+                      <button
+                        onClick={handleTeacherSendDirectMessage}
+                        disabled={isSendingTeacherDirect || (!teacherDirectInput.trim() && !teacherDirectFile)}
+                        className="bg-[#005bbf] hover:bg-[#004493] text-white px-5 py-2.5 rounded-full text-xs font-quicksand font-bold transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1"
+                      >
+                        <span>{isSendingTeacherDirect ? "Sending..." : "Send"}</span>
+                        <span className="material-symbols-outlined text-sm">send</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-[#727785] p-6">
+                    <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">person_search</span>
+                    <p className="text-xs">Select a student on the left to view direct messages.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 📋 VIEW 3: STUDENT REQUESTS */}
         {activeView === "approvals" && (
           <div className="space-y-5">
             <div>
@@ -1453,7 +1973,7 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 👥 VIEW 3: STUDENTS DIRECTORY */}
+        {/* 👥 VIEW 4: STUDENTS DIRECTORY */}
         {activeView === "students" && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
@@ -1495,7 +2015,7 @@ export default function TeacherDashboard() {
                             isApproved ? "bg-[#0f9d58]/10 text-[#0f9d58]" : "bg-[#ac3509]/10 text-[#ac3509]"
                           }`}
                         >
-                          {isApproved ? "Authorized" : "Access Revoked"}
+                          {isApproved ? "Approved" : "Access Revoked"}
                         </span>
                         <span className="text-[11px] font-bold text-[#005bbf]">{student.progress}% Complete</span>
                       </div>
@@ -1506,24 +2026,36 @@ export default function TeacherDashboard() {
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-[#eae8e7] flex items-center justify-between">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleAccess(student);
-                        }}
-                        className={`text-xs px-3 py-1.5 rounded-xl font-quicksand font-bold transition-colors ${
-                          isApproved ? "text-[#ac3509] hover:bg-[#ac3509]/10" : "text-[#0f9d58] bg-[#0f9d58]/10"
-                        }`}
-                      >
-                        {isApproved ? "Revoke" : "Grant Access"}
-                      </button>
+                      {isApproved ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleAccess(student);
+                          }}
+                          className="text-xs text-[#ac3509] hover:bg-[#ac3509]/10 border border-[#ac3509]/20 px-3 py-1.5 rounded-xl font-quicksand font-bold flex items-center gap-1 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-base">person_remove</span>
+                          <span>Revoke Access</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleAccess(student);
+                          }}
+                          className="text-xs text-[#0f9d58] bg-[#0f9d58]/10 hover:bg-[#0f9d58]/20 border border-[#0f9d58]/30 px-3 py-1.5 rounded-xl font-quicksand font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                        >
+                          <span className="material-symbols-outlined text-base">how_to_reg</span>
+                          <span>Grant Access</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           openScheduleForStudent(student.id);
                         }}
-                        className="bg-[#005bbf]/10 text-[#005bbf] hover:bg-[#005bbf]/20 px-3 py-1.5 rounded-xl font-quicksand font-bold text-xs flex items-center gap-1"
+                        className="bg-[#005bbf] text-white hover:bg-[#004493] px-3.5 py-1.5 rounded-xl font-quicksand font-bold text-xs flex items-center gap-1"
                       >
                         <span className="material-symbols-outlined text-sm">videocam</span>
                         <span>Schedule</span>
@@ -1536,7 +2068,7 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 📝 VIEW 4: ASSIGNMENTS */}
+        {/* 📝 VIEW 5: ASSIGNMENTS */}
         {activeView === "assignments" && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
@@ -1624,7 +2156,7 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 🏫 VIEW 5: SECTIONS */}
+        {/* 🏫 VIEW 6: SECTIONS */}
         {activeView === "sections" && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
@@ -1723,7 +2255,7 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 📅 VIEW 6: LIVE SCHEDULE */}
+        {/* 📅 VIEW 7: LIVE SCHEDULE */}
         {activeView === "schedule" && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1750,7 +2282,6 @@ export default function TeacherDashboard() {
               </button>
             </div>
 
-            {/* Filter Pills */}
             <div className="flex items-center gap-2 border-b border-[#eae8e7] pb-3 overflow-x-auto">
               {(["upcoming", "today", "completed", "all"] as const).map((filter) => (
                 <button
@@ -1775,7 +2306,6 @@ export default function TeacherDashboard() {
               ))}
             </div>
 
-            {/* Meetings Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredMeetings.map((meet) => {
                 const isCompleted = meet.status === "completed";
@@ -1940,9 +2470,6 @@ export default function TeacherDashboard() {
               value={scheduleForm.meetLink}
               onChange={(e) => setScheduleForm({ ...scheduleForm, meetLink: e.target.value })}
             />
-            <p className="text-[11px] text-[#727785] mt-1">
-              Leave blank to automatically generate an instant room link.
-            </p>
           </div>
 
           <button
@@ -2205,10 +2732,24 @@ export default function TeacherDashboard() {
               {chatMessages.map((msg) => {
                 const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
                 return (
-                  <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
-                    <span className="text-[10px] text-[#727785] mb-0.5 px-1 font-semibold">
-                      {msg.senderName} ({msg.senderRole})
-                    </span>
+                  <div key={msg.id} className={`flex items-end gap-2 group ${isMe ? "justify-end" : "justify-start"}`}>
+                    {!isMe && (
+                      <span className="text-[10px] text-[#727785] mb-0.5 px-1 font-semibold">
+                        {msg.senderName} ({msg.senderRole})
+                      </span>
+                    )}
+
+                    {/* 🗑️ Delete Button appears ONLY on sender's messages */}
+                    {isMe && (
+                      <button
+                        onClick={() => handleDeleteSectionMessage(msg.id)}
+                        className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all"
+                        title="Delete Message"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    )}
+
                     <div
                       className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs ${
                         isMe ? "bg-[#005bbf] text-white rounded-tr-none" : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
@@ -2280,17 +2821,30 @@ export default function TeacherDashboard() {
             <div className="flex flex-col gap-2 pt-2">
               <button
                 onClick={() => {
+                  handleSelectStudentThread(selectedStudent);
+                  setSelectedStudent(null);
+                  setActiveView("direct_messages");
+                }}
+                className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2.5 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <span className="material-symbols-outlined text-base">chat</span>
+                <span>Send Direct Message</span>
+              </button>
+
+              <button
+                onClick={() => {
                   openScheduleForStudent(selectedStudent.id);
                   setSelectedStudent(null);
                 }}
-                className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-3 rounded-2xl font-quicksand font-bold text-xs sm:text-sm active:scale-95"
+                className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-2.5 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-1.5"
               >
-                Schedule Class Session
+                <span className="material-symbols-outlined text-base">videocam</span>
+                <span>Schedule Class Session</span>
               </button>
 
               <button
                 onClick={() => handleDeleteStudent(selectedStudent)}
-                className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-2xl font-quicksand font-bold text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95"
+                className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-2.5 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95"
               >
                 <span className="material-symbols-outlined text-base">delete</span>
                 <span>Delete Student Record</span>

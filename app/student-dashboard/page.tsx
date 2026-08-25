@@ -31,19 +31,28 @@ type SectionMessage = {
   createdAt: string;
 };
 
+type DirectMessage = {
+  id: string;
+  studentId: string;
+  studentEmail: string;
+  studentName: string;
+  senderEmail: string;
+  senderName: string;
+  senderRole: string;
+  senderAvatar?: string | null;
+  text?: string | null;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentType?: string | null;
+  read: boolean;
+  createdAt: string;
+};
+
 type TyperUser = {
   id: string;
   userEmail: string;
   userName: string;
   userAvatar?: string | null;
-};
-
-type Classmate = {
-  id: string;
-  name: string;
-  avatar?: string | null;
-  email: string;
-  role?: string;
 };
 
 type Meeting = {
@@ -72,68 +81,96 @@ export default function StudentDashboard() {
   const [approvalStatus, setApprovalStatus] = useState<"loading" | "pending" | "approved">("loading");
   const [assignedSection, setAssignedSection] = useState<string | null>(null);
   const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
-  const [classmates, setClassmates] = useState<Classmate[]>([]);
+  const [studentDbId, setStudentDbId] = useState<string>("");
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
-    "learning" | "assignments" | "classes" | "sections" | "resources"
+    "learning" | "assignments" | "classes" | "sections" | "direct_chat"
   >("learning");
 
-  // Real Database Assignments State
+  // Assignments & Live Classes State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-
-  // Real Database Scheduled Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
 
-  // Student File Attachments State
+  // Student Assignment Upload State
   const [studentFiles, setStudentFiles] = useState<{ [key: string]: File | null }>({});
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
-  // Section Group Chat & Typing State
+  // Section Group Chat State
   const [sectionChatMessages, setSectionChatMessages] = useState<SectionMessage[]>([]);
   const [studentChatInput, setStudentChatInput] = useState("");
   const [activeTypers, setActiveTypers] = useState<TyperUser[]>([]);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const sectionChatContainerRef = useRef<HTMLDivElement | null>(null);
   const lastTypingPingRef = useRef<number>(0);
+
+  // 💬 Direct 1-on-1 Teacher Chat State
+  const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+  const [directInput, setDirectInput] = useState("");
+  const [directFile, setDirectFile] = useState<File | null>(null);
+  const [isSendingDirect, setIsSendingDirect] = useState(false);
+  const studentChatContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll Tracker (prevents scroll jumps during background polling)
+  const prevDirectMsgLengthRef = useRef<number>(0);
+  const prevSectionMsgLengthRef = useRef<number>(0);
 
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([
     {
       id: "1",
-      title: "New Assignment Posted",
-      desc: "Check your assigned tasks for this week.",
+      title: "Welcome to Happy Toddles",
+      desc: "Check your assigned learning tasks and live classes.",
       time: "15 mins ago",
-      read: false,
-    },
-    {
-      id: "2",
-      title: "Class Reminder",
-      desc: "Live learning session scheduled. Check your Classes tab.",
-      time: "1 hour ago",
       read: false,
     },
   ]);
 
-  // Settings State
+  // Settings & Progress State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [soundEffects, setSoundEffects] = useState(true);
   const [dailyProgress, setDailyProgress] = useState(0);
 
-  // Auto-scroll to bottom of chat
+  // 🔄 Smart scroll for direct chat only when a new message is added
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (directMessages.length > prevDirectMsgLengthRef.current) {
+      if (studentChatContainerRef.current) {
+        studentChatContainerRef.current.scrollTop = studentChatContainerRef.current.scrollHeight;
+      }
+      prevDirectMsgLengthRef.current = directMessages.length;
+    }
+  }, [directMessages]);
+
+  // 🔄 Smart scroll for section chat only on new messages or typing indicator
+  useEffect(() => {
+    if (sectionChatMessages.length > prevSectionMsgLengthRef.current || activeTypers.length > 0) {
+      if (sectionChatContainerRef.current) {
+        sectionChatContainerRef.current.scrollTop = sectionChatContainerRef.current.scrollHeight;
+      }
+      prevSectionMsgLengthRef.current = sectionChatMessages.length;
+    }
   }, [sectionChatMessages, activeTypers]);
 
-  // Check Student Approval Status & Section
+  // 🔄 Clear unread messages when student navigates to "direct_chat"
+  useEffect(() => {
+    if (activeNav === "direct_chat" && studentDbId) {
+      const hasUnread = directMessages.some((m) => m.senderRole === "TEACHER" && !m.read);
+      if (hasUnread) {
+        setDirectMessages((prev) => prev.map((m) => (m.senderRole === "TEACHER" ? { ...m, read: true } : m)));
+        fetch("/api/direct-messages", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ studentId: studentDbId }),
+        }).catch((err) => console.error("Failed to mark direct messages read:", err));
+      }
+    }
+  }, [activeNav, studentDbId, directMessages]);
+
   useEffect(() => {
     const userRole = (session?.user as any)?.role;
 
-    if (
-      status === "authenticated" &&
-      (userRole === "TEACHER" || userRole === "teacher")
-    ) {
+    if (status === "authenticated" && (userRole === "TEACHER" || userRole === "teacher")) {
       window.location.href = "/teacher-dashboard";
       return;
     }
@@ -145,6 +182,7 @@ export default function StudentDashboard() {
           const data = await res.json();
           if (data.student?.status === "approved") {
             setApprovalStatus("approved");
+            setStudentDbId(data.student.id);
 
             const secName = data.student.section?.name || data.student.sectionName || null;
             const secId = data.student.sectionId || data.student.section?.id || null;
@@ -170,7 +208,147 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // Fetch Scheduled Meetings from Database (Polls every 5s)
+  // 🔄 Fetch Direct Messages with Teacher (Polls every 3s)
+  useEffect(() => {
+    async function fetchDirectChat() {
+      try {
+        const res = await fetch("/api/direct-messages");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages) {
+            setDirectMessages((prev) => {
+              if (activeNav === "direct_chat") {
+                return data.messages.map((m: DirectMessage) =>
+                  m.senderRole === "TEACHER" ? { ...m, read: true } : m
+                );
+              }
+              return data.messages;
+            });
+          }
+          if (data.studentId && !studentDbId) {
+            setStudentDbId(data.studentId);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load direct messages:", err);
+      }
+    }
+
+    if (status === "authenticated") {
+      fetchDirectChat();
+      const interval = setInterval(fetchDirectChat, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [status, studentDbId, activeNav]);
+
+  // 💬 Send 1-on-1 Direct Message with Attachment to Teacher
+  const handleSendDirectMessage = async () => {
+    if ((!directInput.trim() && !directFile) || !studentDbId) return;
+
+    setIsSendingDirect(true);
+    let uploadedUrl: string | null = null;
+    let fileName: string | null = null;
+    let fileType: string | null = null;
+
+    if (directFile) {
+      fileName = directFile.name;
+      if (directFile.type.startsWith("image/")) {
+        fileType = "image";
+      } else if (directFile.type.includes("pdf")) {
+        fileType = "pdf";
+      } else {
+        fileType = "document";
+      }
+
+      try {
+        uploadedUrl = await uploadAssignmentFile(directFile);
+      } catch (err) {
+        console.error("Failed to upload direct chat file:", err);
+      }
+    }
+
+    const messageText = directInput.trim();
+    setDirectInput("");
+    setDirectFile(null);
+
+    try {
+      const res = await fetch("/api/direct-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: studentDbId,
+          text: messageText || null,
+          attachmentUrl: uploadedUrl,
+          attachmentName: fileName,
+          attachmentType: fileType,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setDirectMessages((prev) => [...prev, data.message]);
+          setTimeout(() => {
+            if (studentChatContainerRef.current) {
+              studentChatContainerRef.current.scrollTop = studentChatContainerRef.current.scrollHeight;
+            }
+          }, 50);
+        }
+      } else {
+        alert("Failed to send message to teacher.");
+      }
+    } catch (err) {
+      console.error("Error sending direct message:", err);
+    } finally {
+      setIsSendingDirect(false);
+    }
+  };
+
+  // 🗑️ Delete Direct Message (Strictly sender only)
+  const handleDeleteDirectMessage = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
+
+    try {
+      const res = await fetch("/api/direct-messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setDirectMessages((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete message.");
+      }
+    } catch (err) {
+      console.error("Error deleting message:", err);
+    }
+  };
+
+  // 🗑️ Delete Section Message (Strictly sender only)
+  const handleDeleteSectionMessage = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
+
+    try {
+      const res = await fetch("/api/sections/messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        setSectionChatMessages((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete message.");
+      }
+    } catch (err) {
+      console.error("Error deleting section message:", err);
+    }
+  };
+
+  // Fetch Meetings
   useEffect(() => {
     async function fetchMeetings() {
       try {
@@ -207,7 +385,7 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // Fetch Section Group Chat Messages & Typers (Polls every 2.5s)
+  // Fetch Section Chat & Typers
   useEffect(() => {
     if (!currentSectionId) return;
 
@@ -239,10 +417,8 @@ export default function StudentDashboard() {
     }
   }, [currentSectionId, status]);
 
-  // Trigger Typing Ping when Student is typing
   const handleTypingInput = (text: string) => {
     setStudentChatInput(text);
-
     if (!currentSectionId) return;
 
     const now = Date.now();
@@ -256,7 +432,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // Send Student Section Message
   const handleSendStudentMessage = async () => {
     if (!studentChatInput.trim() || !currentSectionId) return;
 
@@ -286,7 +461,7 @@ export default function StudentDashboard() {
     }
   };
 
-  // Fetch Assignments from Database & Calculate Daily Progress
+  // Fetch Assignments & Calculate Completion
   useEffect(() => {
     async function fetchAssignments() {
       try {
@@ -309,7 +484,6 @@ export default function StudentDashboard() {
 
             setAssignments(myAssignments);
 
-            // Compute actual assignment progress
             if (myAssignments.length > 0) {
               const completedCount = myAssignments.filter((a: Assignment) => a.status === "completed").length;
               setDailyProgress(Math.round((completedCount / myAssignments.length) * 100));
@@ -395,12 +569,20 @@ export default function StudentDashboard() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
+  // 🧑‍🏫 Teacher Avatar & Unread Messages Detection
+  const teacherDirectMsg = directMessages.find((m) => m.senderRole === "TEACHER" && m.senderAvatar);
+  const teacherAvatar = teacherDirectMsg?.senderAvatar || null;
+
+  const unreadTeacherMessages = directMessages.filter((m) => m.senderRole === "TEACHER" && !m.read);
+  const unreadTeacherMessagesCount = unreadTeacherMessages.length;
+  const latestTeacherMessage = [...directMessages].reverse().find((m) => m.senderRole === "TEACHER");
+
   const navItems = [
     { id: "learning" as const, icon: "dashboard", label: "My Learning" },
     { id: "assignments" as const, icon: "assignment", label: "Assignments" },
     { id: "classes" as const, icon: "videocam", label: "Classes" },
     { id: "sections" as const, icon: "groups", label: "My Section" },
-    { id: "resources" as const, icon: "library_books", label: "Resources" },
+    { id: "direct_chat" as const, icon: "chat", label: "Ask Teacher", badge: unreadTeacherMessagesCount },
   ];
 
   const parseMeetingDate = (dateStr: string) => {
@@ -449,7 +631,7 @@ export default function StudentDashboard() {
       <div className="min-h-screen bg-[#fbf9f8] flex flex-col items-center justify-center gap-3">
         <div className="w-10 h-10 border-4 border-[#005bbf] border-t-transparent rounded-full animate-spin" />
         <p className="font-quicksand font-bold text-sm text-[#005bbf]">
-          Verifying account status...
+          Verifying student profile...
         </p>
       </div>
     );
@@ -469,10 +651,7 @@ export default function StudentDashboard() {
             </h2>
             <p className="text-xs sm:text-sm text-[#414754] leading-relaxed">
               Hi <strong className="text-[#1b1c1c]">{firstName}</strong>! Your student account (
-              <span className="text-[#005bbf] font-medium">{session?.user?.email}</span>) is awaiting authorization.
-            </p>
-            <p className="text-xs text-[#727785] leading-relaxed">
-              Your instructor will authorize your access shortly.
+              <span className="text-[#005bbf] font-medium">{session?.user?.email}</span>) is awaiting instructor authorization.
             </p>
           </div>
 
@@ -500,7 +679,7 @@ export default function StudentDashboard() {
 
   return (
     <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row antialiased">
-      {/* 🧭 Modern Slim Sidebar */}
+      {/* 🧭 Desktop Navigation Sidebar */}
       <aside className="hidden md:flex flex-col justify-between p-5 border-r border-[#eae8e7] bg-white h-screen w-72 fixed left-0 top-0 z-40 shadow-[1px_0_10px_rgba(0,0,0,0.02)]">
         <div>
           {/* Brand Header */}
@@ -588,13 +767,22 @@ export default function StudentDashboard() {
                       {meetings.length}
                     </span>
                   )}
+                  {item.id === "direct_chat" && unreadTeacherMessagesCount > 0 && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        isActive ? "bg-white/20 text-white" : "bg-[#ac3509] text-white"
+                      }`}
+                    >
+                      {unreadTeacherMessagesCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </nav>
         </div>
 
-        {/* Sidebar Daily Goal Widget (Strictly conditional on assignments) */}
+        {/* Sidebar Daily Goal Widget */}
         <div className="p-4 bg-[#f5f3f3] rounded-3xl border border-[#eae8e7]">
           <div className="flex items-center justify-between mb-2">
             <span className="font-quicksand font-bold text-xs text-[#1b1c1c] flex items-center gap-1.5">
@@ -611,9 +799,7 @@ export default function StudentDashboard() {
           </div>
           <button
             onClick={() => {
-              if (hasActiveAssignments) {
-                setActiveNav("assignments");
-              }
+              if (hasActiveAssignments) setActiveNav("assignments");
             }}
             disabled={!hasActiveAssignments}
             className={`w-full py-2.5 rounded-xl font-quicksand font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs ${
@@ -642,10 +828,7 @@ export default function StudentDashboard() {
         </div>
         <div className="flex items-center gap-1 text-[#005bbf]">
           <button
-            onClick={() => {
-              setShowNotifications(!showNotifications);
-              setShowSettingsModal(false);
-            }}
+            onClick={() => setShowNotifications(!showNotifications)}
             className="p-2 hover:bg-[#f5f3f3] rounded-full relative"
             aria-label="Notifications"
           >
@@ -708,6 +891,11 @@ export default function StudentDashboard() {
                   >
                     <span className="material-symbols-outlined text-lg">{item.icon}</span>
                     <span>{item.label}</span>
+                    {item.id === "direct_chat" && unreadTeacherMessagesCount > 0 && (
+                      <span className="bg-[#ac3509] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        {unreadTeacherMessagesCount}
+                      </span>
+                    )}
                   </button>
                 ))}
               </nav>
@@ -734,17 +922,17 @@ export default function StudentDashboard() {
           <div>
             <h1 className="font-quicksand text-xl lg:text-2xl font-bold text-[#1b1c1c]">
               {activeNav === "learning" && `Welcome back, ${firstName}! ✨`}
-              {activeNav === "assignments" && "Assignments & Worksheets"}
+              {activeNav === "assignments" && "Assignments & Tasks"}
               {activeNav === "classes" && "Scheduled Live Classes"}
-              {activeNav === "sections" && "Section & Group Discussions"}
-              {activeNav === "resources" && "Learning Materials"}
+              {activeNav === "sections" && "Cohort Discussions"}
+              {activeNav === "direct_chat" && "Direct Message with Teacher"}
             </h1>
             <p className="text-xs text-[#727785] mt-0.5">
-              {activeNav === "learning" && "Track your daily study goals and active assignments."}
-              {activeNav === "assignments" && "Complete your assigned tasks and attach your work."}
-              {activeNav === "classes" && "Join your live Google Meet classes hosted by your teacher."}
-              {activeNav === "sections" && "Engage in class group chat and meet your classmates."}
-              {activeNav === "resources" && "Download downloadable printables and reading sheets."}
+              {activeNav === "learning" && "Track daily learning progress and assigned tasks."}
+              {activeNav === "assignments" && "Complete tasks and attach your work."}
+              {activeNav === "classes" && "Join your live Google Meet classes."}
+              {activeNav === "sections" && "Section group discussion with classmates."}
+              {activeNav === "direct_chat" && "Send direct private messages, images, PDFs, and documents to your teacher."}
             </p>
           </div>
 
@@ -802,30 +990,26 @@ export default function StudentDashboard() {
           </div>
         </header>
 
-        {/* 🌟 VIEW 1: MY LEARNING (REDESIGNED BENTO HUB) */}
+        {/* 🌟 VIEW 1: MY LEARNING */}
         {activeNav === "learning" && (
           <div className="space-y-6">
-            {/* Bento Top Row: Hero Banner & Quick Metrics */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Hero Action Card */}
               <div className="lg:col-span-8 bg-gradient-to-br from-[#005bbf] to-[#004493] rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[220px]">
-                <div
-                  className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none"
-                />
+                <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
                 <div>
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-quicksand font-bold tracking-wide uppercase mb-3">
                     <span className="material-symbols-outlined text-sm">stars</span>
-                    Daily Learning Journey
+                    Daily Focus
                   </span>
                   <h2 className="font-quicksand text-2xl sm:text-3xl font-bold tracking-tight mb-2">
                     {hasActiveAssignments
                       ? `You have ${activeAssignmentsCount} active assignment${activeAssignmentsCount === 1 ? "" : "s"} today!`
                       : "All caught up! No active assignments right now."}
                   </h2>
-                  <p className="text-xs sm:text-sm text-white/80 max-w-0.9">
+                  <p className="text-xs sm:text-sm text-white/80 max-w">
                     {hasActiveAssignments
                       ? "Complete your tasks and submit your worksheets to advance your learning progress."
-                      : "Check back later or ask your instructor in your Section chat for new activities."}
+                      : "Ask your instructor in Direct Chat for new learning worksheets."}
                   </p>
                 </div>
 
@@ -855,7 +1039,6 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              {/* Learning Stats Bento Card */}
               <div className="lg:col-span-4 grid grid-cols-2 gap-3.5">
                 <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
                   <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center mb-2">
@@ -899,9 +1082,8 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Bento Lower Grid: Live Classes & Assignments Side-by-Side */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Scheduled Live Meetings Preview */}
+              {/* Scheduled Live Meetings */}
               <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-4">
@@ -958,65 +1140,73 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              {/* Active Assignments Preview */}
+              {/* 💬 Direct Chat Quick Card with Real-time Unread Updates */}
               <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                 <div>
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex justify-between items-center mb-3">
                     <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[#005bbf]">assignment</span>
-                      Active Assignments ({activeAssignmentsCount})
+                      <span className="material-symbols-outlined text-[#005bbf]">chat</span>
+                      Teacher Direct Chat
                     </h3>
-                    <button onClick={() => setActiveNav("assignments")} className="text-xs text-[#005bbf] font-bold hover:underline">
-                      View All
-                    </button>
+                    {unreadTeacherMessagesCount > 0 && (
+                      <span className="bg-[#ac3509] text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        {unreadTeacherMessagesCount} New
+                      </span>
+                    )}
                   </div>
 
-                  {assignments.length === 0 ? (
-                    <div className="py-8 text-center text-[#727785]">
-                      <span className="material-symbols-outlined text-3xl mb-1">task_alt</span>
-                      <p className="text-xs font-medium">No active assignments posted.</p>
+                  {/* Dynamic Unread Message Snippet Box */}
+                  {unreadTeacherMessagesCount > 0 && latestTeacherMessage ? (
+                    <div
+                      onClick={() => setActiveNav("direct_chat")}
+                      className="p-3.5 bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl mb-4 cursor-pointer hover:bg-[#005bbf]/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <div className="w-6 h-6 rounded-full overflow-hidden bg-[#005bbf] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                          {teacherAvatar ? (
+                            <Image
+                              src={teacherAvatar}
+                              alt="Teacher"
+                              width={24}
+                              height={24}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span>T</span>
+                          )}
+                        </div>
+                        <span className="font-quicksand font-bold text-xs text-[#005bbf]">New message from Teacher</span>
+                        <span className="text-[10px] text-[#727785] ml-auto">
+                          {new Date(latestTeacherMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#1b1c1c] font-medium truncate">
+                        {latestTeacherMessage.text || `📎 ${latestTeacherMessage.attachmentName || "Sent an attachment"}`}
+                      </p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {assignments.slice(0, 2).map((assignment) => {
-                        const isCompleted = assignment.status === "completed";
-                        return (
-                          <div
-                            key={assignment.id}
-                            className="flex items-center justify-between p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]"
-                          >
-                            <div className="min-w-0 pr-2">
-                              <span className="text-[10px] font-bold text-[#005bbf] bg-[#005bbf]/10 px-2 py-0.5 rounded-full">
-                                {assignment.subject}
-                              </span>
-                              <h4 className={`font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate mt-1 ${
-                                isCompleted ? "line-through text-[#727785]" : ""
-                              }`}>
-                                {assignment.title}
-                              </h4>
-                              <p className="text-[11px] text-[#727785] mt-0.5">Due: {assignment.dueDate}</p>
-                            </div>
-
-                            <button
-                              onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-quicksand font-bold shrink-0 transition-colors ${
-                                isCompleted ? "bg-[#0f9d58]/10 text-[#0f9d58]" : "bg-[#005bbf] text-white"
-                              }`}
-                            >
-                              {isCompleted ? "Done ✓" : "Mark Done"}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <p className="text-xs text-[#727785] leading-relaxed mb-4">
+                      Have questions regarding your homework or worksheets? Chat directly with your teacher and attach image or PDF files.
+                    </p>
                   )}
                 </div>
+
+                <button
+                  onClick={() => setActiveNav("direct_chat")}
+                  className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-2.5 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs"
+                >
+                  <span className="material-symbols-outlined text-base">forum</span>
+                  <span>{unreadTeacherMessagesCount > 0 ? "Read Teacher Messages" : "Open Direct Messages"}</span>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* 📝 VIEW 2: DEDICATED ASSIGNMENTS TAB */}
+        {/* 📝 VIEW 2: ASSIGNMENTS */}
         {activeNav === "assignments" && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
@@ -1119,16 +1309,14 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* 📅 VIEW 3: CLASSES (LIVE GOOGLE MEET SESSIONS) */}
+        {/* 📅 VIEW 3: CLASSES */}
         {activeNav === "classes" && (
           <div className="space-y-5">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
-                  Scheduled Live Classes ({meetings.length})
-                </h2>
-                <p className="text-xs text-[#727785]">Join your virtual sessions hosted on Google Meet.</p>
-              </div>
+            <div>
+              <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+                Scheduled Live Classes ({meetings.length})
+              </h2>
+              <p className="text-xs text-[#727785]">Join your virtual sessions hosted on Google Meet.</p>
             </div>
 
             {meetings.length === 0 ? (
@@ -1211,7 +1399,6 @@ export default function StudentDashboard() {
 
             {assignedSection && currentSectionId ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left Panel: Group Members */}
                 <div className="lg:col-span-4 bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
                   <div>
                     <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c] pb-3 border-b border-[#eae8e7] mb-3 flex items-center gap-2">
@@ -1221,12 +1408,24 @@ export default function StudentDashboard() {
 
                     <div className="space-y-2.5 max-h-[380px] overflow-y-auto">
                       <div className="flex items-center gap-3 p-2.5 bg-[#fbf9f8] rounded-2xl border border-[#005bbf]/20">
-                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                          <span className="material-symbols-outlined text-base">school</span>
+                        <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
+                          {teacherAvatar ? (
+                            <Image
+                              src={teacherAvatar}
+                              alt="Class Teacher"
+                              width={36}
+                              height={36}
+                              unoptimized
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="material-symbols-outlined text-base">school</span>
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="font-quicksand font-bold text-xs text-[#1b1c1c]">Class Teacher</p>
-                          <span className="text-[10px] text-[#005bbf] font-semibold">Moderator</span>
+                          <span className="text-[10px] text-[#005bbf] font-semibold">Instructor</span>
                         </div>
                       </div>
 
@@ -1258,7 +1457,6 @@ export default function StudentDashboard() {
                   </p>
                 </div>
 
-                {/* Right Panel: Chat Stream */}
                 <div className="lg:col-span-8 flex flex-col h-[520px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-xs">
                   <div className="bg-white border-b border-[#eae8e7] p-4 flex items-center gap-3">
                     <span className="material-symbols-outlined text-[#005bbf]">forum</span>
@@ -1267,7 +1465,10 @@ export default function StudentDashboard() {
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]">
+                  <div
+                    ref={sectionChatContainerRef}
+                    className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]"
+                  >
                     {sectionChatMessages.length === 0 ? (
                       <div className="h-full flex flex-col items-center justify-center text-center text-[#727785]">
                         <span className="material-symbols-outlined text-3xl mb-1">chat_bubble_outline</span>
@@ -1277,7 +1478,7 @@ export default function StudentDashboard() {
                       sectionChatMessages.map((msg) => {
                         const isMe = msg.senderEmail.toLowerCase() === session?.user?.email?.toLowerCase();
                         return (
-                          <div key={msg.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
+                          <div key={msg.id} className={`flex items-end gap-2 group ${isMe ? "justify-end" : "justify-start"}`}>
                             {!isMe && (
                               <div className="w-7 h-7 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                                 {msg.senderAvatar ? (
@@ -1295,6 +1496,18 @@ export default function StudentDashboard() {
                                 )}
                               </div>
                             )}
+
+                            {/* 🗑️ Delete Button appears ONLY on sender's messages */}
+                            {isMe && (
+                              <button
+                                onClick={() => handleDeleteSectionMessage(msg.id)}
+                                className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all"
+                                title="Delete Message"
+                              >
+                                <span className="material-symbols-outlined text-xs">delete</span>
+                              </button>
+                            )}
+
                             <div
                               className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs ${
                                 isMe ? "bg-[#005bbf] text-white rounded-tr-none" : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
@@ -1307,7 +1520,6 @@ export default function StudentDashboard() {
                         );
                       })
                     )}
-                    <div ref={chatEndRef} />
                   </div>
 
                   <div className="p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white">
@@ -1338,22 +1550,196 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* 📚 VIEW 5: RESOURCES */}
-        {activeNav === "resources" && (
+        {/* 💬 VIEW 5: DIRECT CHAT WITH TEACHER */}
+        {activeNav === "direct_chat" && (
           <div className="space-y-4">
-            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex items-center justify-between">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center">
-                  <span className="material-symbols-outlined text-2xl">description</span>
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#eae8e7] shadow-xs flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#005bbf] text-white flex items-center justify-center font-bold overflow-hidden shadow-xs border border-[#005bbf]">
+                  {teacherAvatar ? (
+                    <Image
+                      src={teacherAvatar}
+                      alt="Class Teacher"
+                      width={48}
+                      height={48}
+                      unoptimized
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="material-symbols-outlined text-xl sm:text-2xl">school</span>
+                  )}
                 </div>
                 <div>
-                  <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Alphabet &amp; Phonics Worksheet</h4>
-                  <p className="text-xs text-[#727785]">PDF Printable trace guide</p>
+                  <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c]">Class Teacher</h3>
+                  <p className="text-[11px] sm:text-xs text-[#0f9d58] font-medium flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#0f9d58] inline-block" />
+                    Direct Private Messaging with Teacher
+                  </p>
                 </div>
               </div>
-              <button className="bg-[#f5f3f3] text-[#005bbf] px-4 py-2 rounded-full text-xs font-quicksand font-bold hover:bg-[#005bbf]/10">
-                Download
-              </button>
+            </div>
+
+            <div className="flex flex-col h-[calc(100dvh-220px)] min-h-[460px] max-h-[640px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-xs">
+              <div
+                ref={studentChatContainerRef}
+                className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3.5 bg-[#fbf9f8]"
+              >
+                {directMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-[#727785] py-12">
+                    <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">chat</span>
+                    <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Start a Direct Conversation</h4>
+                    <p className="text-xs text-[#727785] max-w-sm mt-1">
+                      Send questions, homework queries, or attach files (Images, PDFs, Docs) directly to your teacher.
+                    </p>
+                  </div>
+                ) : (
+                  directMessages.map((msg) => {
+                    const isMe = msg.senderRole === "STUDENT";
+                    const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+
+                    return (
+                      <div key={msg.id} className={`flex items-end gap-2 group ${isMe ? "justify-end" : "justify-start"}`}>
+                        {!isMe && (
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs overflow-hidden border border-[#005bbf]/20">
+                            {msg.senderAvatar ? (
+                              <Image
+                                src={msg.senderAvatar}
+                                alt={msg.senderName || "Teacher"}
+                                width={32}
+                                height={32}
+                                unoptimized
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>T</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 🗑️ Delete Button appears ONLY on sender's messages */}
+                        {isMe && (
+                          <button
+                            onClick={() => handleDeleteDirectMessage(msg.id)}
+                            className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all shrink-0"
+                            title="Delete Message"
+                          >
+                            <span className="material-symbols-outlined text-sm">delete</span>
+                          </button>
+                        )}
+
+                        <div
+                          className={`max-w-[85%] sm:max-w-[70%] p-3 sm:p-3.5 rounded-2xl text-xs shadow-2xs space-y-2 ${
+                            isMe
+                              ? "bg-[#005bbf] text-white rounded-tr-none"
+                              : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                          }`}
+                        >
+                          {!isMe && (
+                            <p className="font-quicksand font-bold text-[11px] text-[#005bbf]">
+                              Teacher
+                            </p>
+                          )}
+
+                          {msg.text && (
+                            <p className="whitespace-pre-wrap break-words leading-relaxed text-xs sm:text-[13px]">
+                              {msg.text}
+                            </p>
+                          )}
+
+                          {msg.attachmentUrl && (
+                            <div className={`p-2 rounded-xl border ${isMe ? "bg-white/10 border-white/20" : "bg-[#fbf9f8] border-[#eae8e7]"}`}>
+                              {msg.attachmentType === "image" ? (
+                                <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                  <Image
+                                    src={msg.attachmentUrl}
+                                    alt={msg.attachmentName || "Attached Image"}
+                                    width={240}
+                                    height={160}
+                                    unoptimized
+                                    className="rounded-lg object-cover max-h-44 w-full border border-black/5"
+                                  />
+                                  <span className="text-[10px] mt-1 inline-flex items-center gap-1 font-semibold underline">
+                                    <span className="material-symbols-outlined text-xs">image</span>
+                                    {msg.attachmentName || "View Image"}
+                                  </span>
+                                </a>
+                              ) : (
+                                <a
+                                  href={msg.attachmentUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 font-quicksand font-bold text-xs hover:underline"
+                                >
+                                  <span className="material-symbols-outlined text-base">
+                                    {msg.attachmentType === "pdf" ? "picture_as_pdf" : "description"}
+                                  </span>
+                                  <span className="truncate max-w-[180px] sm:max-w-[220px]">{msg.attachmentName || "View Document"}</span>
+                                  <span className="material-symbols-outlined text-xs">open_in_new</span>
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          <div className={`text-[9px] text-right font-medium ${isMe ? "text-white/80" : "text-[#727785]"}`}>
+                            {formattedTime}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {directFile && (
+                <div className="px-4 py-2 bg-[#f5f3f3] border-t border-[#eae8e7] flex items-center justify-between text-xs shrink-0">
+                  <div className="flex items-center gap-2 text-[#005bbf] font-semibold truncate">
+                    <span className="material-symbols-outlined text-base">attach_file</span>
+                    <span className="truncate max-w-[200px] sm:max-w-xs">{directFile.name}</span>
+                  </div>
+                  <button
+                    onClick={() => setDirectFile(null)}
+                    className="text-[#ac3509] hover:bg-[#ac3509]/10 p-1 rounded-full"
+                    title="Remove file"
+                  >
+                    <span className="material-symbols-outlined text-base">close</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="p-2.5 sm:p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white shrink-0">
+                <label className="p-2 rounded-full hover:bg-[#f5f3f3] text-[#005bbf] cursor-pointer transition-colors shrink-0" title="Attach file (Image, PDF, Doc)">
+                  <span className="material-symbols-outlined text-xl block">attach_file</span>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf,.doc,.docx"
+                    className="hidden"
+                    onChange={(e) => setDirectFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+
+                <input
+                  type="text"
+                  placeholder="Type a message to your teacher..."
+                  className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                  value={directInput}
+                  onChange={(e) => setDirectInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendDirectMessage()}
+                />
+
+                <button
+                  onClick={handleSendDirectMessage}
+                  disabled={isSendingDirect || (!directInput.trim() && !directFile)}
+                  className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-full text-xs font-quicksand font-bold transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1"
+                >
+                  <span className="hidden sm:inline">{isSendingDirect ? "Sending..." : "Send"}</span>
+                  <span className="material-symbols-outlined text-sm">send</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

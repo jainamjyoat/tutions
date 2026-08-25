@@ -153,3 +153,21 @@ model Meeting {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+
+model DirectMessage {
+  id             String   @id @default(cuid())
+  studentId      String   // Identifies the student thread
+  studentEmail   String
+  studentName    String
+  senderEmail    String
+  senderName     String
+  senderRole     String   // "TEACHER" or "STUDENT"
+  senderAvatar   String?
+  text           String?
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?  // "image" | "pdf" | "document"
+  read           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+}

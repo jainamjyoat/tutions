@@ -3,10 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
-// GET: Fetch messages for a specific section and mark them as seen
+// GET: Fetch section messages & auto-prune messages older than 4 days
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !session.user) {
+  if (!session || !session.user || !session.user.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -14,26 +14,16 @@ export async function GET(req: Request) {
   const sectionId = searchParams.get("sectionId");
 
   if (!sectionId) {
-    return NextResponse.json({ error: "Section ID is required" }, { status: 400 });
+    return NextResponse.json({ error: "sectionId is required" }, { status: 400 });
   }
 
-  const userEmail = session.user.email?.trim().toLowerCase();
-
   try {
-    // 1. Mark unread messages as seen by current user
-    if (userEmail) {
-      await prisma.sectionMessage.updateMany({
-        where: {
-          sectionId,
-          NOT: { seenBy: { has: userEmail } },
-        },
-        data: {
-          seenBy: { push: userEmail },
-        },
-      });
-    }
+    // ⏱️ Auto-delete messages older than 4 days
+    const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+    await prisma.sectionMessage.deleteMany({
+      where: { createdAt: { lt: fourDaysAgo } },
+    });
 
-    // 2. Fetch all messages in section
     const messages = await prisma.sectionMessage.findMany({
       where: { sectionId },
       orderBy: { createdAt: "asc" },
@@ -46,40 +36,31 @@ export async function GET(req: Request) {
   }
 }
 
-// POST: Send a message to a section chat
+// POST: Send a section message
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !session.user) {
+  if (!session || !session.user || !session.user.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const { sectionId, text } = await req.json();
 
-    if (!sectionId || !text || !text.trim()) {
-      return NextResponse.json({ error: "Section ID and message text required" }, { status: 400 });
+    if (!sectionId || !text?.trim()) {
+      return NextResponse.json({ error: "Section ID and message text are required" }, { status: 400 });
     }
 
-    const teacherEmail = process.env.TEACHER_EMAIL?.trim().toLowerCase();
-    const userEmail = session.user.email?.trim().toLowerCase();
-    const userRole = (session.user as any)?.role;
-
-    const isTeacher =
-      (teacherEmail && userEmail === teacherEmail) ||
-      userRole === "TEACHER" ||
-      userRole === "teacher";
-
-    const senderEmail = session.user.email || "";
+    const userRole = ((session.user as any).role || "STUDENT").toUpperCase();
 
     const newMessage = await prisma.sectionMessage.create({
       data: {
         sectionId,
-        text: text.trim(),
-        senderEmail,
-        senderName: session.user.name || session.user.email || "User",
-        senderRole: isTeacher ? "TEACHER" : "STUDENT",
+        senderEmail: session.user.email,
+        senderName: session.user.name || "User",
+        senderRole: userRole === "TEACHER" ? "TEACHER" : "STUDENT",
         senderAvatar: session.user.image || null,
-        seenBy: [userEmail || senderEmail], // Initial sender has seen it
+        text: text.trim(),
+        seenBy: [session.user.email],
       },
     });
 
@@ -87,5 +68,37 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Error posting section message:", error);
     return NextResponse.json({ error: "Failed to send message" }, { status: 500 });
+  }
+}
+
+// DELETE: Delete a single section message (Strictly only the message sender)
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user || !session.user.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const { id } = await req.json();
+    if (!id) {
+      return NextResponse.json({ error: "Message ID is required" }, { status: 400 });
+    }
+
+    const existing = await prisma.sectionMessage.findUnique({ where: { id } });
+
+    if (!existing) {
+      return NextResponse.json({ success: true });
+    }
+
+    // 🔒 Strictly ensure only the person who sent the message can delete it
+    if (existing.senderEmail.toLowerCase() !== session.user.email.toLowerCase()) {
+      return NextResponse.json({ error: "You can only delete your own messages" }, { status: 403 });
+    }
+
+    await prisma.sectionMessage.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting section message:", error);
+    return NextResponse.json({ error: "Failed to delete message" }, { status: 500 });
   }
 }
