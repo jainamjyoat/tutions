@@ -1003,7 +1003,7 @@ export default function StudentDashboard() {
 
           <div className="flex items-center gap-3">
             {/* Animated Theme Switch */}
-            {/* <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} /> */}
+            <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
 
             <div className="relative">
               <button
