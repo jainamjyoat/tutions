@@ -71,10 +71,8 @@ export async function GET() {
   }
 
   try {
-    // ⏱️ EXPIRATION TIMER
-    // const EXPIRATION_TIME_MS = 3 * 60 * 1000; // 🧪 TEST: 3 Minutes
-    const EXPIRATION_TIME_MS = 3 * 24 * 60 * 60 * 1000; // 🚀 PRODUCTION: 3 Days
-
+    // ⏱️ EXPIRATION TIMER (3 Days)
+    const EXPIRATION_TIME_MS = 3 * 24 * 60 * 60 * 1000;
     const expirationCutoff = new Date(Date.now() - EXPIRATION_TIME_MS);
 
     // 1. Fetch expired assignments to collect file URLs
@@ -111,7 +109,7 @@ export async function GET() {
       });
     }
 
-    // Fetch active assignments
+    // Fetch active assignments with submissions and individual student remarks
     let assignments: any[] = [];
     try {
       assignments = await prisma.assignment.findMany({
@@ -156,7 +154,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { title, description, subject, section, studentId, studentName, attachmentUrl, dueDate } = body;
+    const { title, description, subject, section, studentId, studentName, attachmentUrl, dueDate, remarks } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: "Assignment Title is required" }, { status: 400 });
@@ -172,7 +170,11 @@ export async function POST(req: Request) {
         studentName: studentName && studentName.trim() !== "" ? studentName.trim() : null,
         attachmentUrl: attachmentUrl || null,
         dueDate: dueDate?.trim() || "No Due Date",
+        remarks: remarks || null,
         status: "active",
+      },
+      include: {
+        submissions: true,
       },
     });
 
@@ -186,7 +188,7 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH: Toggle Student Completion Status
+// PATCH: Toggle Student Completion Status OR Save Teacher Remarks
 export async function PATCH(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -194,71 +196,129 @@ export async function PATCH(req: Request) {
   }
 
   try {
-    const { id, status, studentAttachmentUrl } = await req.json();
+    const body = await req.json();
+    const { id, assignmentId, studentId, studentName, studentEmail, remarks, status, studentAttachmentUrl } = body;
+
+    const targetId = assignmentId || id;
+    if (!targetId) {
+      return NextResponse.json({ error: "Assignment ID is required" }, { status: 400 });
+    }
+
     const studentUser = session.user as any;
-    const studentIdentifier = studentUser.id || studentUser.email;
-    const studentName = session.user.name || "Student";
+    const activeStudentId = studentId || studentUser.id || studentUser.email;
+    const activeStudentName = studentName || session.user.name || "Student";
+    const activeStudentEmail = studentEmail || session.user.email || null;
 
-    const assignment = await prisma.assignment.findUnique({ where: { id } });
-    if (!assignment) {
-      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
+    // 1. If teacher is saving Remarks for a specific student submission
+    if (remarks !== undefined && activeStudentId) {
+      await prisma.submission.upsert({
+        where: {
+          assignmentId_studentId: {
+            assignmentId: targetId,
+            studentId: activeStudentId,
+          },
+        },
+        update: {
+          remarks: remarks,
+          ...(studentAttachmentUrl !== undefined && { attachmentUrl: studentAttachmentUrl }),
+        },
+        create: {
+          assignmentId: targetId,
+          studentId: activeStudentId,
+          studentName: activeStudentName,
+          studentEmail: activeStudentEmail,
+          attachmentUrl: studentAttachmentUrl || null,
+          remarks: remarks,
+        },
+      });
     }
 
-    let updatedCompletedIds = assignment.completedStudentIds || [];
-
-    if (status === "completed") {
-      if (!updatedCompletedIds.includes(studentIdentifier)) {
-        updatedCompletedIds.push(studentIdentifier);
+    // 2. If student is toggling completion status
+    if (status !== undefined) {
+      const assignment = await prisma.assignment.findUnique({ where: { id: targetId } });
+      if (!assignment) {
+        return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
       }
 
-      try {
-        await prisma.submission.create({
-          data: {
-            assignmentId: id,
-            studentId: studentIdentifier,
-            studentName: studentName,
-            attachmentUrl: studentAttachmentUrl || null,
-          },
-        });
-      } catch (subErr) {
-        // Safe fallback
+      let updatedCompletedIds = assignment.completedStudentIds || [];
+
+      if (status === "completed") {
+        if (!updatedCompletedIds.includes(activeStudentId)) {
+          updatedCompletedIds.push(activeStudentId);
+        }
+
+        try {
+          await prisma.submission.upsert({
+            where: {
+              assignmentId_studentId: {
+                assignmentId: targetId,
+                studentId: activeStudentId,
+              },
+            },
+            update: {
+              attachmentUrl: studentAttachmentUrl || undefined,
+            },
+            create: {
+              assignmentId: targetId,
+              studentId: activeStudentId,
+              studentName: activeStudentName,
+              studentEmail: activeStudentEmail,
+              attachmentUrl: studentAttachmentUrl || null,
+            },
+          });
+        } catch (subErr) {
+          console.error("Submission upsert error during completion toggle:", subErr);
+        }
+      } else if (status === "active") {
+        updatedCompletedIds = updatedCompletedIds.filter((item) => item !== activeStudentId);
+
+        try {
+          const studentSubmissions = await prisma.submission.findMany({
+            where: {
+              assignmentId: targetId,
+              studentId: activeStudentId,
+            },
+          });
+
+          const subFileUrls = studentSubmissions.map((s) => s.attachmentUrl);
+          await deleteFilesFromStorage(subFileUrls);
+
+          await prisma.submission.deleteMany({
+            where: {
+              assignmentId: targetId,
+              studentId: activeStudentId,
+            },
+          });
+        } catch (subErr) {
+          console.error("Submission deletion error during status revert:", subErr);
+        }
       }
-    } else {
-      updatedCompletedIds = updatedCompletedIds.filter((item) => item !== studentIdentifier);
 
-      try {
-        const studentSubmissions = await prisma.submission.findMany({
-          where: {
-            assignmentId: id,
-            studentId: studentIdentifier,
-          },
-        });
-
-        const subFileUrls = studentSubmissions.map((s) => s.attachmentUrl);
-        await deleteFilesFromStorage(subFileUrls);
-
-        await prisma.submission.deleteMany({
-          where: {
-            assignmentId: id,
-            studentId: studentIdentifier,
-          },
-        });
-      } catch (subErr) {
-        // Safe fallback
-      }
+      await prisma.assignment.update({
+        where: { id: targetId },
+        data: {
+          status,
+          completedStudentIds: updatedCompletedIds,
+          ...(remarks !== undefined && { remarks }),
+        },
+      });
+    } else if (remarks !== undefined && !activeStudentId) {
+      // General assignment remarks
+      await prisma.assignment.update({
+        where: { id: targetId },
+        data: { remarks },
+      });
     }
 
-    const updatedAssignment = await prisma.assignment.update({
-      where: { id },
-      data: {
-        status,
-        completedStudentIds: updatedCompletedIds,
-      },
+    // Fetch updated assignment with all submissions included
+    const updatedAssignment = await prisma.assignment.findUnique({
+      where: { id: targetId },
+      include: { submissions: true },
     });
 
     return NextResponse.json({ success: true, assignment: updatedAssignment });
   } catch (error) {
-    console.error("Error updating assignment completion:", error);
+    console.error("Error updating assignment/remarks in DB:", error);
     return NextResponse.json({ error: "Failed to update assignment" }, { status: 500 });
   }
 }

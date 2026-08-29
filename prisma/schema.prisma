@@ -90,6 +90,7 @@ model Assignment {
   completedStudentIds String[]     @default([])
   dueDate             String?
   status              String       @default("active")
+  remarks             String?      // 👈 ADDED: General assignment remark from teacher
   submissions         Submission[]
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
@@ -101,8 +102,12 @@ model Submission {
   assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   studentId     String
   studentName   String
+  studentEmail  String?    // 👈 ADDED: Optional email mapping
   attachmentUrl String?
+  remarks       String?    // 👈 ADDED: Individual student feedback from teacher
   submittedAt   DateTime   @default(now())
+
+  @@unique([assignmentId, studentId]) // 👈 ADDED: Required for Prisma upsert queries
 }
 
 model Section {
@@ -120,7 +125,7 @@ model SectionMessage {
   section      Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   senderEmail  String
   senderName   String
-  senderRole   String // "TEACHER" or "STUDENT"
+  senderRole   String   // "TEACHER" or "STUDENT"
   senderAvatar String?
   text         String
   seenBy       String[] @default([])
@@ -153,7 +158,6 @@ model Meeting {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
-
 
 model DirectMessage {
   id             String   @id @default(cuid())

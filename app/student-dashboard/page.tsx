@@ -4,6 +4,17 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { uploadAssignmentFile } from "@/lib/upload";
+import ThemeSwitch from "../components/ThemeSwitch";
+
+type Submission = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail?: string | null;
+  attachmentUrl?: string | null;
+  submittedAt?: string;
+  remarks?: string | null;
+};
 
 type Assignment = {
   id: string;
@@ -15,6 +26,8 @@ type Assignment = {
   studentName?: string | null;
   attachmentUrl?: string | null;
   completedStudentIds?: string[];
+  submissions?: Submission[];
+  remarks?: string | null;
   dueDate: string;
   status: "active" | "completed";
 };
@@ -88,6 +101,29 @@ export default function StudentDashboard() {
     "learning" | "assignments" | "classes" | "sections" | "direct_chat"
   >("learning");
 
+  // 🌙 Dark/Light Theme State
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "dark") {
+      setIsDarkMode(true);
+    } else if (savedTheme === "light") {
+      setIsDarkMode(false);
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setIsDarkMode(prefersDark);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => {
+      const next = !prev;
+      localStorage.setItem("theme", next ? "dark" : "light");
+      return next;
+    });
+  };
+
   // Assignments & Live Classes State
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -110,7 +146,7 @@ export default function StudentDashboard() {
   const [isSendingDirect, setIsSendingDirect] = useState(false);
   const studentChatContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Scroll Tracker (prevents scroll jumps during background polling)
+  // Scroll Tracker
   const prevDirectMsgLengthRef = useRef<number>(0);
   const prevSectionMsgLengthRef = useRef<number>(0);
 
@@ -132,7 +168,6 @@ export default function StudentDashboard() {
   const [soundEffects, setSoundEffects] = useState(true);
   const [dailyProgress, setDailyProgress] = useState(0);
 
-  // 🔄 Smart scroll for direct chat only when a new message is added
   useEffect(() => {
     if (directMessages.length > prevDirectMsgLengthRef.current) {
       if (studentChatContainerRef.current) {
@@ -142,7 +177,6 @@ export default function StudentDashboard() {
     }
   }, [directMessages]);
 
-  // 🔄 Smart scroll for section chat only on new messages or typing indicator
   useEffect(() => {
     if (sectionChatMessages.length > prevSectionMsgLengthRef.current || activeTypers.length > 0) {
       if (sectionChatContainerRef.current) {
@@ -152,7 +186,6 @@ export default function StudentDashboard() {
     }
   }, [sectionChatMessages, activeTypers]);
 
-  // 🔄 Clear unread messages when student navigates to "direct_chat"
   useEffect(() => {
     if (activeNav === "direct_chat" && studentDbId) {
       const hasUnread = directMessages.some((m) => m.senderRole === "TEACHER" && !m.read);
@@ -208,7 +241,6 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // 🔄 Fetch Direct Messages with Teacher (Polls every 3s)
   useEffect(() => {
     async function fetchDirectChat() {
       try {
@@ -241,7 +273,6 @@ export default function StudentDashboard() {
     }
   }, [status, studentDbId, activeNav]);
 
-  // 💬 Send 1-on-1 Direct Message with Attachment to Teacher
   const handleSendDirectMessage = async () => {
     if ((!directInput.trim() && !directFile) || !studentDbId) return;
 
@@ -304,7 +335,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // 🗑️ Delete Direct Message (Strictly sender only)
   const handleDeleteDirectMessage = async (id: string) => {
     if (!confirm("Are you sure you want to delete this message?")) return;
 
@@ -326,7 +356,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // 🗑️ Delete Section Message (Strictly sender only)
   const handleDeleteSectionMessage = async (id: string) => {
     if (!confirm("Are you sure you want to delete this message?")) return;
 
@@ -348,7 +377,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // Fetch Meetings
   useEffect(() => {
     async function fetchMeetings() {
       try {
@@ -385,7 +413,6 @@ export default function StudentDashboard() {
     }
   }, [status, session]);
 
-  // Fetch Section Chat & Typers
   useEffect(() => {
     if (!currentSectionId) return;
 
@@ -461,7 +488,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // Fetch Assignments & Calculate Completion
   useEffect(() => {
     async function fetchAssignments() {
       try {
@@ -569,7 +595,6 @@ export default function StudentDashboard() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  // 🧑‍🏫 Teacher Avatar & Unread Messages Detection
   const teacherDirectMsg = directMessages.find((m) => m.senderRole === "TEACHER" && m.senderAvatar);
   const teacherAvatar = teacherDirectMsg?.senderAvatar || null;
 
@@ -609,12 +634,18 @@ export default function StudentDashboard() {
     if (!open) return null;
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-        <div className="bg-white rounded-3xl p-5 sm:p-6 max-w-[720px] w-full shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-2 border-b border-[#eae8e7]/60">
-            <h3 className="font-quicksand font-bold text-lg sm:text-xl text-[#1b1c1c]">{title}</h3>
+        <div className={`rounded-3xl p-5 sm:p-6 max-w-[720px] w-full shadow-2xl my-auto relative max-h-[90vh] overflow-y-auto border transition-colors ${
+          isDarkMode ? "bg-[#111827] text-slate-100 border-slate-800" : "bg-white text-[#1b1c1c] border-[#eae8e7]"
+        }`}>
+          <div className={`flex justify-between items-center mb-5 sticky top-0 z-10 pb-2 border-b transition-colors ${
+            isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]/60"
+          }`}>
+            <h3 className="font-quicksand font-bold text-lg sm:text-xl">{title}</h3>
             <button
               onClick={onClose}
-              className="text-[#727785] hover:text-[#1b1c1c] p-1.5 rounded-full hover:bg-[#f5f3f3] transition-colors"
+              className={`p-1.5 rounded-full transition-colors ${
+                isDarkMode ? "text-slate-400 hover:text-white hover:bg-slate-800" : "text-[#727785] hover:text-[#1b1c1c] hover:bg-[#f5f3f3]"
+              }`}
               aria-label="Close modal"
             >
               <span className="material-symbols-outlined text-xl">close</span>
@@ -628,7 +659,9 @@ export default function StudentDashboard() {
 
   if (approvalStatus === "loading") {
     return (
-      <div className="min-h-screen bg-[#fbf9f8] flex flex-col items-center justify-center gap-3">
+      <div className={`min-h-screen flex flex-col items-center justify-center gap-3 ${
+        isDarkMode ? "bg-[#090d16] text-slate-100" : "bg-[#fbf9f8] text-[#1b1c1c]"
+      }`}>
         <div className="w-10 h-10 border-4 border-[#005bbf] border-t-transparent rounded-full animate-spin" />
         <p className="font-quicksand font-bold text-sm text-[#005bbf]">
           Verifying student profile...
@@ -639,18 +672,22 @@ export default function StudentDashboard() {
 
   if (approvalStatus === "pending") {
     return (
-      <div className="min-h-screen w-full bg-[#fbf9f8] flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-8 max-w-[620px] w-full text-center border border-[#eae8e7] shadow-xl space-y-6">
+      <div className={`min-h-screen w-full flex items-center justify-center p-4 ${
+        isDarkMode ? "bg-[#090d16] text-slate-100" : "bg-[#fbf9f8] text-[#1b1c1c]"
+      }`}>
+        <div className={`rounded-3xl p-8 max-w-[620px] w-full text-center border shadow-xl space-y-6 ${
+          isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+        }`}>
           <div className="w-16 h-16 bg-[#005bbf]/10 text-[#005bbf] rounded-2xl flex items-center justify-center mx-auto">
             <span className="material-symbols-outlined text-3xl">hourglass_top</span>
           </div>
 
           <div className="space-y-2">
-            <h2 className="font-quicksand font-bold text-2xl text-[#1b1c1c]">
+            <h2 className="font-quicksand font-bold text-2xl">
               Account Approval Pending
             </h2>
-            <p className="text-xs sm:text-sm text-[#414754] leading-relaxed">
-              Hi <strong className="text-[#1b1c1c]">{firstName}</strong>! Your student account (
+            <p className={`text-xs sm:text-sm leading-relaxed ${isDarkMode ? "text-slate-400" : "text-[#414754]"}`}>
+              Hi <strong>{firstName}</strong>! Your student account (
               <span className="text-[#005bbf] font-medium">{session?.user?.email}</span>) is awaiting instructor authorization.
             </p>
           </div>
@@ -666,7 +703,9 @@ export default function StudentDashboard() {
 
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="w-full bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754] font-quicksand font-bold py-2.5 rounded-2xl text-xs transition-colors flex items-center justify-center gap-2"
+              className={`w-full font-quicksand font-bold py-2.5 rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 ${
+                isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-300" : "bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#414754]"
+              }`}
             >
               <span className="material-symbols-outlined text-base">logout</span>
               <span>Sign Out</span>
@@ -678,11 +717,14 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="bg-[#fbf9f8] text-[#1b1c1c] font-inter min-h-screen flex flex-col md:flex-row antialiased">
+    <div className={`font-inter min-h-screen flex flex-col md:flex-row antialiased transition-colors duration-200 ${
+      isDarkMode ? "bg-[#090d16] text-slate-100" : "bg-[#fbf9f8] text-[#1b1c1c]"
+    }`}>
       {/* 🧭 Desktop Navigation Sidebar */}
-      <aside className="hidden md:flex flex-col justify-between p-5 border-r border-[#eae8e7] bg-white h-screen w-72 fixed left-0 top-0 z-40 shadow-[1px_0_10px_rgba(0,0,0,0.02)]">
+      <aside className={`hidden md:flex flex-col justify-between p-5 border-r h-screen w-72 fixed left-0 top-0 z-40 transition-colors ${
+        isDarkMode ? "bg-[#111827] border-slate-800 shadow-[1px_0_10px_rgba(0,0,0,0.2)]" : "bg-white border-[#eae8e7] shadow-[1px_0_10px_rgba(0,0,0,0.02)]"
+      }`}>
         <div>
-          {/* Brand Header */}
           <div className="flex items-center gap-3 px-2 mb-8">
             <div className="w-10 h-10 rounded-2xl bg-[#005bbf] text-white flex items-center justify-center shadow-sm">
               <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -693,12 +735,13 @@ export default function StudentDashboard() {
               <span className="font-quicksand text-xl font-bold text-[#005bbf] tracking-tight block leading-tight">
                 Happy Toddles
               </span>
-              <span className="text-[11px] text-[#727785] font-medium">Student Portal</span>
+              <span className={`text-[11px] font-medium ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Student Portal</span>
             </div>
           </div>
 
-          {/* User Profile Card */}
-          <div className="p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]/80 flex items-center gap-3 mb-6">
+          <div className={`p-3.5 rounded-2xl border flex items-center gap-3 mb-6 transition-colors ${
+            isDarkMode ? "bg-[#1f2937] border-slate-800" : "bg-[#fbf9f8] border-[#eae8e7]/80"
+          }`}>
             <div className="w-12 h-12 rounded-full border-2 border-[#005bbf] p-0.5 bg-white text-[#005bbf] flex items-center justify-center overflow-hidden font-quicksand font-bold text-lg shrink-0">
               {userImage && !imageError ? (
                 <Image
@@ -716,19 +759,18 @@ export default function StudentDashboard() {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">{firstName}</h4>
+              <h4 className="font-quicksand font-bold text-sm truncate">{firstName}</h4>
               {assignedSection ? (
                 <span className="inline-flex items-center gap-1 text-[10px] text-[#005bbf] font-bold bg-[#005bbf]/10 px-2 py-0.5 rounded-full mt-0.5">
                   <span className="material-symbols-outlined text-[12px]">school</span>
                   {assignedSection}
                 </span>
               ) : (
-                <span className="text-[11px] text-[#727785]">No Section</span>
+                <span className={`text-[11px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>No Section</span>
               )}
             </div>
           </div>
 
-          {/* Navigation Links */}
           <nav className="flex flex-col gap-1.5">
             {navItems.map((item) => {
               const isActive = activeNav === item.id;
@@ -739,6 +781,8 @@ export default function StudentDashboard() {
                   className={`flex items-center gap-3.5 rounded-2xl px-4 py-3 font-quicksand font-bold text-xs transition-all text-left ${
                     isActive
                       ? "bg-[#005bbf] text-white shadow-sm"
+                      : isDarkMode
+                      ? "text-slate-300 hover:bg-slate-800 hover:text-[#005bbf]"
                       : "text-[#414754] hover:bg-[#f5f3f3] hover:text-[#005bbf]"
                   }`}
                 >
@@ -782,16 +826,17 @@ export default function StudentDashboard() {
           </nav>
         </div>
 
-        {/* Sidebar Daily Goal Widget */}
-        <div className="p-4 bg-[#f5f3f3] rounded-3xl border border-[#eae8e7]">
+        <div className={`p-4 rounded-3xl border transition-colors ${
+          isDarkMode ? "bg-[#1f2937] border-slate-800" : "bg-[#f5f3f3] border-[#eae8e7]"
+        }`}>
           <div className="flex items-center justify-between mb-2">
-            <span className="font-quicksand font-bold text-xs text-[#1b1c1c] flex items-center gap-1.5">
+            <span className="font-quicksand font-bold text-xs flex items-center gap-1.5">
               <span className="material-symbols-outlined text-sm text-[#fe6f42]">flag</span>
               Daily Goal
             </span>
             <span className="text-xs font-bold text-[#005bbf]">{dailyProgress}%</span>
           </div>
-          <div className="h-2 w-full bg-[#eae8e7] rounded-full overflow-hidden mb-3">
+          <div className={`h-2 w-full rounded-full overflow-hidden mb-3 ${isDarkMode ? "bg-slate-800" : "bg-[#eae8e7]"}`}>
             <div
               className="h-full bg-[#005bbf] rounded-full transition-all duration-500"
               style={{ width: `${dailyProgress}%` }}
@@ -805,6 +850,8 @@ export default function StudentDashboard() {
             className={`w-full py-2.5 rounded-xl font-quicksand font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs ${
               hasActiveAssignments
                 ? "bg-[#005bbf] text-white hover:bg-[#004493] active:scale-95 cursor-pointer"
+                : isDarkMode
+                ? "bg-slate-800 text-slate-500 cursor-not-allowed opacity-75"
                 : "bg-[#eae8e7] text-[#727785] cursor-not-allowed opacity-75"
             }`}
           >
@@ -817,7 +864,9 @@ export default function StudentDashboard() {
       </aside>
 
       {/* 📱 Mobile Top Bar */}
-      <header className="md:hidden flex justify-between items-center w-full px-4 h-16 sticky top-0 z-50 bg-white/90 backdrop-blur-md shadow-sm border-b border-[#eae8e7]">
+      <header className={`md:hidden flex justify-between items-center w-full px-4 h-16 sticky top-0 z-50 backdrop-blur-md shadow-sm border-b transition-colors ${
+        isDarkMode ? "bg-[#111827]/90 border-slate-800" : "bg-white/90 border-[#eae8e7]"
+      }`}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-[#005bbf] text-white flex items-center justify-center">
             <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -826,10 +875,15 @@ export default function StudentDashboard() {
           </div>
           <span className="font-quicksand text-lg font-bold text-[#005bbf]">Happy Toddles</span>
         </div>
-        <div className="flex items-center gap-1 text-[#005bbf]">
+        <div className="flex items-center gap-2">
+          {/* Animated Theme Switch */}
+          <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
+
           <button
             onClick={() => setShowNotifications(!showNotifications)}
-            className="p-2 hover:bg-[#f5f3f3] rounded-full relative"
+            className={`p-2 rounded-full relative transition-colors ${
+              isDarkMode ? "hover:bg-slate-800 text-[#005bbf]" : "hover:bg-[#f5f3f3] text-[#005bbf]"
+            }`}
             aria-label="Notifications"
           >
             <span className="material-symbols-outlined text-xl block">notifications</span>
@@ -840,7 +894,9 @@ export default function StudentDashboard() {
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 hover:bg-[#f5f3f3] rounded-full"
+            className={`p-2 rounded-full transition-colors ${
+              isDarkMode ? "hover:bg-slate-800 text-[#005bbf]" : "hover:bg-[#f5f3f3] text-[#005bbf]"
+            }`}
             aria-label="Toggle menu"
           >
             <span className="material-symbols-outlined text-2xl block">
@@ -853,9 +909,11 @@ export default function StudentDashboard() {
       {/* 📱 Mobile Navigation Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 top-16 bg-black/40 backdrop-blur-sm z-40">
-          <div className="bg-white w-[280px] h-full shadow-2xl p-6 flex flex-col justify-between animate-slideRight">
+          <div className={`w-[280px] h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto transition-colors ${
+            isDarkMode ? "bg-[#111827] text-slate-100" : "bg-white text-[#1b1c1c]"
+          }`}>
             <div className="space-y-4">
-              <div className="flex items-center gap-3 pb-4 border-b border-[#eae8e7]">
+              <div className={`flex items-center gap-3 pb-4 border-b ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
                 <div className="w-12 h-12 rounded-full border-2 border-[#005bbf] flex items-center justify-center font-bold text-sm bg-white overflow-hidden">
                   {userImage && !imageError ? (
                     <Image
@@ -872,8 +930,8 @@ export default function StudentDashboard() {
                   )}
                 </div>
                 <div>
-                  <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c]">{firstName}</h3>
-                  <p className="text-xs text-[#727785]">{assignedSection || "No Section"}</p>
+                  <h3 className="font-quicksand font-bold text-sm">{firstName}</h3>
+                  <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>{assignedSection || "No Section"}</p>
                 </div>
               </div>
 
@@ -886,7 +944,11 @@ export default function StudentDashboard() {
                       setMobileMenuOpen(false);
                     }}
                     className={`flex items-center gap-3 rounded-xl px-4 py-3 font-quicksand font-bold text-xs text-left ${
-                      activeNav === item.id ? "bg-[#005bbf] text-white" : "text-[#414754] hover:bg-[#f5f3f3]"
+                      activeNav === item.id
+                        ? "bg-[#005bbf] text-white"
+                        : isDarkMode
+                        ? "text-slate-300 hover:bg-slate-800"
+                        : "text-[#414754] hover:bg-[#f5f3f3]"
                     }`}
                   >
                     <span className="material-symbols-outlined text-lg">{item.icon}</span>
@@ -906,7 +968,9 @@ export default function StudentDashboard() {
                 setShowSettingsModal(true);
                 setMobileMenuOpen(false);
               }}
-              className="w-full bg-[#f5f3f3] text-[#414754] py-3 rounded-xl font-quicksand font-bold text-xs flex items-center justify-center gap-2"
+              className={`w-full py-3 rounded-xl font-quicksand font-bold text-xs flex items-center justify-center gap-2 transition-colors ${
+                isDarkMode ? "bg-slate-800 text-slate-200" : "bg-[#f5f3f3] text-[#414754]"
+              }`}
             >
               <span className="material-symbols-outlined text-base">settings</span>
               <span>Settings</span>
@@ -916,43 +980,53 @@ export default function StudentDashboard() {
       )}
 
       {/* 🚀 Main Workspace Content */}
-      <main className="flex-1 md:ml-72 p-4 sm:p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
-        {/* Top Glance Header */}
-        <header className="hidden md:flex justify-between items-center bg-white p-4 sm:px-6 rounded-3xl border border-[#eae8e7] shadow-xs">
+      <main className="flex-1 md:ml-72 p-3 sm:p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full space-y-6 min-h-[calc(100vh-4rem)] md:min-h-screen">
+        <header className={`hidden md:flex justify-between items-center p-4 sm:px-6 rounded-3xl border shadow-xs transition-colors ${
+          isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+        }`}>
           <div>
-            <h1 className="font-quicksand text-xl lg:text-2xl font-bold text-[#1b1c1c]">
+            <h1 className="font-quicksand text-xl lg:text-2xl font-bold">
               {activeNav === "learning" && `Welcome back, ${firstName}! ✨`}
               {activeNav === "assignments" && "Assignments & Tasks"}
               {activeNav === "classes" && "Scheduled Live Classes"}
               {activeNav === "sections" && "Cohort Discussions"}
               {activeNav === "direct_chat" && "Direct Message with Teacher"}
             </h1>
-            <p className="text-xs text-[#727785] mt-0.5">
+            <p className={`text-xs mt-0.5 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
               {activeNav === "learning" && "Track daily learning progress and assigned tasks."}
-              {activeNav === "assignments" && "Complete tasks and attach your work."}
+              {activeNav === "assignments" && "Complete tasks, attach your work, and review instructor remarks."}
               {activeNav === "classes" && "Join your live Google Meet classes."}
               {activeNav === "sections" && "Section group discussion with classmates."}
               {activeNav === "direct_chat" && "Send direct private messages, images, PDFs, and documents to your teacher."}
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
+            {/* Animated Theme Switch */}
+            {/* <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} /> */}
+
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2.5 rounded-2xl bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#005bbf] transition-colors relative"
+                className={`p-2.5 rounded-2xl transition-colors relative ${
+                  isDarkMode ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-[#f5f3f3] text-[#005bbf] hover:bg-[#eae8e7]"
+                }`}
                 aria-label="Notifications"
               >
                 <span className="material-symbols-outlined text-xl block">notifications</span>
                 {unreadNotificationsCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ac3509] rounded-full border-2 border-white" />
+                  <span className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ac3509] rounded-full border-2 ${
+                    isDarkMode ? "border-slate-800" : "border-white"
+                  }`} />
                 )}
               </button>
 
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-[#eae8e7] z-50 p-4 animate-fadeIn">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#eae8e7] mb-3">
-                    <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Notifications</h4>
+                <div className={`absolute right-0 mt-2 w-80 sm:w-96 rounded-3xl shadow-2xl border z-50 p-4 animate-fadeIn transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
+                  <div className={`flex items-center justify-between pb-3 border-b mb-3 ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
+                    <h4 className="font-quicksand font-bold text-sm">Notifications</h4>
                     {unreadNotificationsCount > 0 && (
                       <button
                         onClick={markAllNotificationsAsRead}
@@ -968,11 +1042,17 @@ export default function StudentDashboard() {
                         key={n.id}
                         onClick={() => markNotificationAsRead(n.id)}
                         className={`p-3 rounded-2xl border text-xs cursor-pointer transition-all ${
-                          n.read ? "bg-white border-[#eae8e7] opacity-75" : "bg-[#f5f3f3] border-[#005bbf]/20"
+                          n.read
+                            ? isDarkMode
+                              ? "bg-[#1f2937] border-slate-800 opacity-60"
+                              : "bg-white border-[#eae8e7] opacity-75"
+                            : isDarkMode
+                            ? "bg-slate-800/80 border-[#005bbf]/40"
+                            : "bg-[#f5f3f3] border-[#005bbf]/20"
                         }`}
                       >
-                        <p className="font-quicksand font-bold text-[#1b1c1c] text-xs">{n.title}</p>
-                        <p className="text-[#414754] text-[11px] mt-0.5">{n.desc}</p>
+                        <p className="font-quicksand font-bold text-xs">{n.title}</p>
+                        <p className={`text-[11px] mt-0.5 ${isDarkMode ? "text-slate-400" : "text-[#414754]"}`}>{n.desc}</p>
                       </div>
                     ))}
                   </div>
@@ -982,7 +1062,9 @@ export default function StudentDashboard() {
 
             <button
               onClick={() => setShowSettingsModal(true)}
-              className="p-2.5 rounded-2xl bg-[#f5f3f3] hover:bg-[#eae8e7] text-[#005bbf] transition-colors"
+              className={`p-2.5 rounded-2xl transition-colors ${
+                isDarkMode ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-[#f5f3f3] text-[#005bbf] hover:bg-[#eae8e7]"
+              }`}
               aria-label="Settings"
             >
               <span className="material-symbols-outlined text-xl block">settings</span>
@@ -1040,54 +1122,63 @@ export default function StudentDashboard() {
               </div>
 
               <div className="lg:col-span-4 grid grid-cols-2 gap-3.5">
-                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                <div className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
                   <div className="w-10 h-10 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center mb-2">
                     <span className="material-symbols-outlined text-xl">assignment</span>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{activeAssignmentsCount}</p>
-                    <p className="text-[11px] text-[#727785] font-semibold">Active Tasks</p>
+                    <p className="text-2xl font-bold font-quicksand">{activeAssignmentsCount}</p>
+                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Active Tasks</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                <div className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
                   <div className="w-10 h-10 rounded-2xl bg-[#0f9d58]/10 text-[#0f9d58] flex items-center justify-center mb-2">
                     <span className="material-symbols-outlined text-xl">task_alt</span>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{completedAssignmentsCount}</p>
-                    <p className="text-[11px] text-[#727785] font-semibold">Completed</p>
+                    <p className="text-2xl font-bold font-quicksand">{completedAssignmentsCount}</p>
+                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Completed</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                <div className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
                   <div className="w-10 h-10 rounded-2xl bg-[#fe6f42]/10 text-[#fe6f42] flex items-center justify-center mb-2">
                     <span className="material-symbols-outlined text-xl">videocam</span>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{meetings.length}</p>
-                    <p className="text-[11px] text-[#727785] font-semibold">Live Classes</p>
+                    <p className="text-2xl font-bold font-quicksand">{meetings.length}</p>
+                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Live Classes</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-3xl border border-[#eae8e7] flex flex-col justify-between shadow-xs">
+                <div className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
                   <div className="w-10 h-10 rounded-2xl bg-[#795900]/10 text-[#795900] flex items-center justify-center mb-2">
                     <span className="material-symbols-outlined text-xl">trending_up</span>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold font-quicksand text-[#1b1c1c]">{dailyProgress}%</p>
-                    <p className="text-[11px] text-[#727785] font-semibold">Completion</p>
+                    <p className="text-2xl font-bold font-quicksand">{dailyProgress}%</p>
+                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Completion</p>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Scheduled Live Meetings */}
-              <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
+              <div className={`lg:col-span-6 rounded-3xl p-6 border shadow-xs flex flex-col justify-between transition-colors ${
+                isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+              }`}>
                 <div>
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
+                    <h3 className="font-quicksand font-bold text-base flex items-center gap-2">
                       <span className="material-symbols-outlined text-[#005bbf]">videocam</span>
                       Upcoming Classes ({meetings.length})
                     </h3>
@@ -1097,7 +1188,7 @@ export default function StudentDashboard() {
                   </div>
 
                   {meetings.length === 0 ? (
-                    <div className="py-8 text-center text-[#727785]">
+                    <div className={`py-8 text-center ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                       <span className="material-symbols-outlined text-3xl mb-1">event_available</span>
                       <p className="text-xs font-medium">No live classes scheduled today.</p>
                     </div>
@@ -1108,7 +1199,9 @@ export default function StudentDashboard() {
                         return (
                           <div
                             key={meet.id}
-                            className="flex items-center justify-between p-3.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]"
+                            className={`flex items-center justify-between p-3.5 rounded-2xl border transition-colors ${
+                              isDarkMode ? "bg-[#1f2937] border-slate-800" : "bg-[#fbf9f8] border-[#eae8e7]"
+                            }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-11 h-11 rounded-xl bg-[#005bbf] text-white flex flex-col items-center justify-center font-quicksand shrink-0">
@@ -1116,10 +1209,10 @@ export default function StudentDashboard() {
                                 <span className="text-sm font-bold leading-none">{day}</span>
                               </div>
                               <div className="min-w-0">
-                                <h4 className="font-quicksand font-bold text-xs sm:text-sm text-[#1b1c1c] truncate">
+                                <h4 className="font-quicksand font-bold text-xs sm:text-sm truncate">
                                   {meet.topic}
                                 </h4>
-                                <p className="text-[11px] text-[#727785]">
+                                <p className={`text-[11px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                                   {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
                                 </p>
                               </div>
@@ -1140,11 +1233,12 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              {/* 💬 Direct Chat Quick Card with Real-time Unread Updates */}
-              <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
+              <div className={`lg:col-span-6 rounded-3xl p-6 border shadow-xs flex flex-col justify-between transition-colors ${
+                isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+              }`}>
                 <div>
                   <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] flex items-center gap-2">
+                    <h3 className="font-quicksand font-bold text-base flex items-center gap-2">
                       <span className="material-symbols-outlined text-[#005bbf]">chat</span>
                       Teacher Direct Chat
                     </h3>
@@ -1156,11 +1250,12 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
-                  {/* Dynamic Unread Message Snippet Box */}
                   {unreadTeacherMessagesCount > 0 && latestTeacherMessage ? (
                     <div
                       onClick={() => setActiveNav("direct_chat")}
-                      className="p-3.5 bg-[#005bbf]/5 border border-[#005bbf]/20 rounded-2xl mb-4 cursor-pointer hover:bg-[#005bbf]/10 transition-colors"
+                      className={`p-3.5 border rounded-2xl mb-4 cursor-pointer transition-colors ${
+                        isDarkMode ? "bg-[#005bbf]/10 border-[#005bbf]/30 hover:bg-[#005bbf]/20" : "bg-[#005bbf]/5 border-[#005bbf]/20 hover:bg-[#005bbf]/10"
+                      }`}
                     >
                       <div className="flex items-center gap-2.5 mb-1.5">
                         <div className="w-6 h-6 rounded-full overflow-hidden bg-[#005bbf] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
@@ -1179,16 +1274,16 @@ export default function StudentDashboard() {
                           )}
                         </div>
                         <span className="font-quicksand font-bold text-xs text-[#005bbf]">New message from Teacher</span>
-                        <span className="text-[10px] text-[#727785] ml-auto">
+                        <span className={`text-[10px] ml-auto ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                           {new Date(latestTeacherMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
-                      <p className="text-xs text-[#1b1c1c] font-medium truncate">
+                      <p className="text-xs font-medium truncate">
                         {latestTeacherMessage.text || `📎 ${latestTeacherMessage.attachmentName || "Sent an attachment"}`}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-xs text-[#727785] leading-relaxed mb-4">
+                    <p className={`text-xs leading-relaxed mb-4 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                       Have questions regarding your homework or worksheets? Chat directly with your teacher and attach image or PDF files.
                     </p>
                   )}
@@ -1211,27 +1306,40 @@ export default function StudentDashboard() {
           <div className="space-y-5">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl">
                   Your Assigned Tasks ({assignments.length})
                 </h2>
-                <p className="text-xs text-[#727785]">Complete tasks and submit attached work.</p>
+                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Complete tasks, upload work, and review instructor remarks.</p>
               </div>
             </div>
 
             {assignments.length === 0 ? (
-              <div className="bg-white rounded-3xl p-10 text-center border border-[#eae8e7]">
+              <div className={`rounded-3xl p-10 text-center border transition-colors ${
+                isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+              }`}>
                 <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">assignment_turned_in</span>
-                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Assignments Available</h3>
-                <p className="text-xs text-[#727785] mt-1">Daily goals will unlock as soon as your teacher posts assignments.</p>
+                <h3 className="font-quicksand font-bold text-base">No Assignments Available</h3>
+                <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Daily goals will unlock as soon as your teacher posts assignments.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {assignments.map((assignment) => {
                   const isCompleted = assignment.status === "completed";
+
+                  const userEmail = session?.user?.email?.toLowerCase();
+                  const mySubmission = assignment.submissions?.find(
+                    (sub) =>
+                      sub.studentId === studentDbId ||
+                      (userEmail && sub.studentEmail?.toLowerCase() === userEmail)
+                  );
+                  const teacherRemarks = mySubmission?.remarks || assignment.remarks;
+
                   return (
                     <div
                       key={assignment.id}
-                      className="bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                      className={`rounded-3xl p-5 border shadow-xs flex flex-col justify-between gap-4 transition-colors ${
+                        isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                      }`}
                     >
                       <div>
                         <div className="flex justify-between items-start mb-2">
@@ -1247,12 +1355,16 @@ export default function StudentDashboard() {
                           </span>
                         </div>
 
-                        <h3 className={`font-quicksand font-bold text-base text-[#1b1c1c] ${isCompleted ? "line-through text-[#727785]" : ""}`}>
+                        <h3 className={`font-quicksand font-bold text-base ${
+                          isCompleted ? "line-through opacity-60" : ""
+                        }`}>
                           {assignment.title}
                         </h3>
 
                         {assignment.description && (
-                          <p className="text-xs text-[#414754] my-2 bg-[#fbf9f8] p-2.5 rounded-2xl border border-[#eae8e7]">
+                          <p className={`text-xs my-2 p-2.5 rounded-2xl border ${
+                            isDarkMode ? "bg-[#1f2937] border-slate-800 text-slate-300" : "bg-[#fbf9f8] border-[#eae8e7] text-[#414754]"
+                          }`}>
                             {assignment.description}
                           </p>
                         )}
@@ -1269,20 +1381,37 @@ export default function StudentDashboard() {
                           </a>
                         )}
 
-                        <div className="mt-2 text-xs text-[#727785] space-y-0.5">
+                        <div className={`mt-2 text-xs space-y-0.5 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                           <p>Section: {assignment.section}</p>
                           <p className="font-semibold text-[#ac3509]">Due: {assignment.dueDate}</p>
                         </div>
 
+                        {/* 💬 Teacher Remarks Display Box */}
+                        {teacherRemarks && (
+                          <div className={`mt-3 p-3 rounded-2xl border space-y-1 ${
+                            isDarkMode ? "bg-[#005bbf]/15 border-[#005bbf]/30" : "bg-[#005bbf]/10 border-[#005bbf]/25"
+                          }`}>
+                            <div className="flex items-center gap-1.5 text-[#005bbf]">
+                              <span className="material-symbols-outlined text-base">rate_review</span>
+                              <span className="font-quicksand font-bold text-xs">Teacher Remarks & Feedback</span>
+                            </div>
+                            <p className="text-xs font-medium leading-relaxed pl-5">
+                              &ldquo;{teacherRemarks}&rdquo;
+                            </p>
+                          </div>
+                        )}
+
                         {!isCompleted && (
-                          <div className="mt-3 pt-2 border-t border-[#eae8e7]">
-                            <label className="block text-[11px] font-semibold text-[#414754] mb-1">
+                          <div className={`mt-3 pt-2 border-t ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
+                            <label className={`block text-[11px] font-semibold mb-1 ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>
                               Attach Completed Work (PDF, Image, Doc)
                             </label>
                             <input
                               type="file"
                               accept="image/*,.pdf,.doc,.docx"
-                              className="w-full text-xs text-[#727785] file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer"
+                              className={`w-full text-xs file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:bg-[#005bbf]/10 file:text-[#005bbf] file:font-bold hover:file:bg-[#005bbf]/20 cursor-pointer ${
+                                isDarkMode ? "text-slate-400" : "text-[#727785]"
+                              }`}
                               onChange={(e) => handleFileChange(assignment.id, e.target.files?.[0] || null)}
                             />
                           </div>
@@ -1293,7 +1422,11 @@ export default function StudentDashboard() {
                         onClick={() => handleToggleAssignment(assignment.id, assignment.status)}
                         disabled={uploadingId === assignment.id}
                         className={`w-full py-2.5 rounded-2xl text-xs font-quicksand font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
-                          isCompleted ? "bg-[#f5f3f3] text-[#414754]" : "bg-[#005bbf] text-white hover:bg-[#004493]"
+                          isCompleted
+                            ? isDarkMode
+                              ? "bg-slate-800 text-slate-300"
+                              : "bg-[#f5f3f3] text-[#414754]"
+                            : "bg-[#005bbf] text-white hover:bg-[#004493]"
                         }`}
                       >
                         <span className="material-symbols-outlined text-base">
@@ -1313,17 +1446,19 @@ export default function StudentDashboard() {
         {activeNav === "classes" && (
           <div className="space-y-5">
             <div>
-              <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+              <h2 className="font-quicksand font-bold text-xl">
                 Scheduled Live Classes ({meetings.length})
               </h2>
-              <p className="text-xs text-[#727785]">Join your virtual sessions hosted on Google Meet.</p>
+              <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Join your virtual sessions hosted on Google Meet.</p>
             </div>
 
             {meetings.length === 0 ? (
-              <div className="bg-white rounded-3xl p-10 text-center border border-[#eae8e7]">
+              <div className={`rounded-3xl p-10 text-center border transition-colors ${
+                isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+              }`}>
                 <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">event_busy</span>
-                <h3 className="font-quicksand font-bold text-base text-[#1b1c1c]">No Classes Scheduled</h3>
-                <p className="text-xs text-[#727785] mt-1">Your teacher has not scheduled any live meetings yet.</p>
+                <h3 className="font-quicksand font-bold text-base">No Classes Scheduled</h3>
+                <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Your teacher has not scheduled any live meetings yet.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1332,7 +1467,9 @@ export default function StudentDashboard() {
                   return (
                     <div
                       key={meet.id}
-                      className="bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between gap-4"
+                      className={`rounded-3xl p-5 border shadow-xs flex flex-col justify-between gap-4 transition-colors ${
+                        isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                      }`}
                     >
                       <div>
                         <div className="flex justify-between items-start mb-3">
@@ -1340,21 +1477,23 @@ export default function StudentDashboard() {
                             <span className="material-symbols-outlined text-xs">videocam</span>
                             Live Google Meet
                           </span>
-                          <span className="text-[11px] text-[#727785] font-semibold">{meet.date}</span>
+                          <span className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>{meet.date}</span>
                         </div>
 
-                        <h3 className="font-quicksand font-bold text-base text-[#1b1c1c] mb-2">{meet.topic}</h3>
+                        <h3 className="font-quicksand font-bold text-base mb-2">{meet.topic}</h3>
 
-                        <div className="flex items-center gap-3 p-3 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]">
+                        <div className={`flex items-center gap-3 p-3 rounded-2xl border ${
+                          isDarkMode ? "bg-[#1f2937] border-slate-800" : "bg-[#fbf9f8] border-[#eae8e7]"
+                        }`}>
                           <div className="w-12 h-12 rounded-xl bg-[#005bbf] text-white flex flex-col items-center justify-center font-quicksand shrink-0">
                             <span className="text-[9px] uppercase font-bold">{month}</span>
                             <span className="text-base font-bold leading-tight">{day}</span>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-[#1b1c1c]">
+                            <p className="text-xs font-bold">
                               {meet.time} {meet.endTime ? `– ${meet.endTime}` : ""}
                             </p>
-                            <p className="text-[11px] text-[#727785]">
+                            <p className={`text-[11px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                               {meet.studentName ? `Session for: ${meet.studentName}` : "General Class Session"}
                             </p>
                           </div>
@@ -1381,15 +1520,17 @@ export default function StudentDashboard() {
         {/* 🏫 VIEW 4: MY SECTION & CLASSMATES */}
         {activeNav === "sections" && (
           <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 border border-[#eae8e7] shadow-xs flex items-center gap-4">
+            <div className={`rounded-3xl p-6 border shadow-xs flex items-center gap-4 transition-colors ${
+              isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+            }`}>
               <div className="w-14 h-14 rounded-2xl bg-[#005bbf]/10 text-[#005bbf] flex items-center justify-center shrink-0">
                 <span className="material-symbols-outlined text-3xl">school</span>
               </div>
               <div>
-                <h2 className="font-quicksand font-bold text-xl text-[#1b1c1c]">
+                <h2 className="font-quicksand font-bold text-xl">
                   {assignedSection ? `Section: ${assignedSection}` : "No Section Assigned"}
                 </h2>
-                <p className="text-xs text-[#727785]">
+                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                   {assignedSection
                     ? "Connect with your classmates and teachers."
                     : "Ask your teacher to assign you to a section."}
@@ -1399,15 +1540,21 @@ export default function StudentDashboard() {
 
             {assignedSection && currentSectionId ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-4 bg-white rounded-3xl p-5 border border-[#eae8e7] shadow-xs flex flex-col justify-between">
+                <div className={`lg:col-span-4 rounded-3xl p-5 border shadow-xs flex flex-col justify-between transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
                   <div>
-                    <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c] pb-3 border-b border-[#eae8e7] mb-3 flex items-center gap-2">
+                    <h3 className={`font-quicksand font-bold text-sm pb-3 border-b mb-3 flex items-center gap-2 ${
+                      isDarkMode ? "border-slate-800" : "border-[#eae8e7]"
+                    }`}>
                       <span className="material-symbols-outlined text-[#005bbf]">groups</span>
                       Class Members
                     </h3>
 
                     <div className="space-y-2.5 max-h-[380px] overflow-y-auto">
-                      <div className="flex items-center gap-3 p-2.5 bg-[#fbf9f8] rounded-2xl border border-[#005bbf]/20">
+                      <div className={`flex items-center gap-3 p-2.5 rounded-2xl border ${
+                        isDarkMode ? "bg-[#1f2937] border-[#005bbf]/40" : "bg-[#fbf9f8] border-[#005bbf]/20"
+                      }`}>
                         <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                           {teacherAvatar ? (
                             <Image
@@ -1424,12 +1571,14 @@ export default function StudentDashboard() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c]">Class Teacher</p>
+                          <p className="font-quicksand font-bold text-xs">Class Teacher</p>
                           <span className="text-[10px] text-[#005bbf] font-semibold">Instructor</span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 p-2.5 bg-[#fbf9f8] rounded-2xl border border-[#eae8e7]">
+                      <div className={`flex items-center gap-3 p-2.5 rounded-2xl border ${
+                        isDarkMode ? "bg-[#1f2937] border-slate-800" : "bg-[#fbf9f8] border-[#eae8e7]"
+                      }`}>
                         <div className="w-9 h-9 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                           {userImage && !imageError ? (
                             <Image
@@ -1446,31 +1595,37 @@ export default function StudentDashboard() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-quicksand font-bold text-xs text-[#1b1c1c]">{rawName} (You)</p>
+                          <p className="font-quicksand font-bold text-xs">{rawName} (You)</p>
                           <span className="text-[10px] text-[#0f9d58] font-semibold">Student</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <p className="text-[11px] text-[#727785] text-center pt-3 border-t border-[#eae8e7]">
+                  <p className={`text-[11px] text-center pt-3 border-t ${isDarkMode ? "text-slate-400 border-slate-800" : "text-[#727785] border-[#eae8e7]"}`}>
                     Section members only.
                   </p>
                 </div>
 
-                <div className="lg:col-span-8 flex flex-col h-[520px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-xs">
-                  <div className="bg-white border-b border-[#eae8e7] p-4 flex items-center gap-3">
+                <div className={`lg:col-span-8 flex flex-col h-[500px] md:h-[520px] rounded-3xl overflow-hidden border shadow-xs transition-colors ${
+                  isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                }`}>
+                  <div className={`border-b p-4 flex items-center gap-3 shrink-0 ${
+                    isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                  }`}>
                     <span className="material-symbols-outlined text-[#005bbf]">forum</span>
-                    <h3 className="font-quicksand font-bold text-sm text-[#1b1c1c]">
+                    <h3 className="font-quicksand font-bold text-sm">
                       {assignedSection} Class Discussion
                     </h3>
                   </div>
 
                   <div
                     ref={sectionChatContainerRef}
-                    className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-[#fbf9f8]"
+                    className={`flex-1 min-h-0 overflow-y-auto p-4 space-y-3 transition-colors ${
+                      isDarkMode ? "bg-[#090d16]" : "bg-[#fbf9f8]"
+                    }`}
                   >
                     {sectionChatMessages.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center text-[#727785]">
+                      <div className={`h-full flex flex-col items-center justify-center text-center ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                         <span className="material-symbols-outlined text-3xl mb-1">chat_bubble_outline</span>
                         <p className="text-xs">No messages yet. Say hi to your class!</p>
                       </div>
@@ -1497,11 +1652,10 @@ export default function StudentDashboard() {
                               </div>
                             )}
 
-                            {/* 🗑️ Delete Button appears ONLY on sender's messages */}
                             {isMe && (
                               <button
                                 onClick={() => handleDeleteSectionMessage(msg.id)}
-                                className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all"
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-[#ac3509] p-1 rounded-lg transition-all"
                                 title="Delete Message"
                               >
                                 <span className="material-symbols-outlined text-xs">delete</span>
@@ -1510,7 +1664,11 @@ export default function StudentDashboard() {
 
                             <div
                               className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs ${
-                                isMe ? "bg-[#005bbf] text-white rounded-tr-none" : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
+                                isMe
+                                  ? "bg-[#005bbf] text-white rounded-tr-none"
+                                  : isDarkMode
+                                  ? "bg-[#1f2937] text-slate-100 border border-slate-800 rounded-tl-none"
+                                  : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
                               }`}
                             >
                               {!isMe && <p className="font-bold text-[10px] text-[#005bbf] mb-0.5">{msg.senderName}</p>}
@@ -1522,11 +1680,15 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
-                  <div className="p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white">
+                  <div className={`p-3 border-t flex items-center gap-2 shrink-0 ${
+                    isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+                  }`}>
                     <input
                       type="text"
                       placeholder="Type a message to your section..."
-                      className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-4 py-2 text-xs focus:outline-none focus:border-[#005bbf]"
+                      className={`flex-1 border rounded-full px-4 py-2 text-xs focus:outline-none focus:border-[#005bbf] transition-colors ${
+                        isDarkMode ? "bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500" : "bg-[#f5f3f3] border-[#eae8e7] text-[#1b1c1c]"
+                      }`}
                       value={studentChatInput}
                       onChange={(e) => handleTypingInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSendStudentMessage()}
@@ -1534,7 +1696,7 @@ export default function StudentDashboard() {
                     <button
                       onClick={handleSendStudentMessage}
                       disabled={!studentChatInput.trim()}
-                      className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 py-2 rounded-full text-xs font-quicksand font-bold disabled:opacity-40"
+                      className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 py-2 rounded-full text-xs font-quicksand font-bold disabled:opacity-40 shrink-0"
                     >
                       Send
                     </button>
@@ -1542,9 +1704,11 @@ export default function StudentDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-3xl p-8 text-center border border-[#eae8e7]">
-                <span className="material-symbols-outlined text-4xl text-[#727785] mb-2">chat_error</span>
-                <p className="text-xs text-[#727785]">Section chat will unlock once assigned to a class.</p>
+              <div className={`rounded-3xl p-8 text-center border ${
+                isDarkMode ? "bg-[#111827] border-slate-800 text-slate-400" : "bg-white border-[#eae8e7] text-[#727785]"
+              }`}>
+                <span className="material-symbols-outlined text-4xl mb-2">chat_error</span>
+                <p className="text-xs">Section chat will unlock once assigned to a class.</p>
               </div>
             )}
           </div>
@@ -1552,8 +1716,10 @@ export default function StudentDashboard() {
 
         {/* 💬 VIEW 5: DIRECT CHAT WITH TEACHER */}
         {activeNav === "direct_chat" && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#eae8e7] shadow-xs flex items-center justify-between">
+          <div className="space-y-4 h-full flex flex-col">
+            <div className={`rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between shrink-0 transition-colors ${
+              isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+            }`}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#005bbf] text-white flex items-center justify-center font-bold overflow-hidden shadow-xs border border-[#005bbf]">
                   {teacherAvatar ? (
@@ -1571,7 +1737,7 @@ export default function StudentDashboard() {
                   )}
                 </div>
                 <div>
-                  <h3 className="font-quicksand font-bold text-sm sm:text-base text-[#1b1c1c]">Class Teacher</h3>
+                  <h3 className="font-quicksand font-bold text-sm sm:text-base">Class Teacher</h3>
                   <p className="text-[11px] sm:text-xs text-[#0f9d58] font-medium flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-[#0f9d58] inline-block" />
                     Direct Private Messaging with Teacher
@@ -1580,16 +1746,20 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            <div className="flex flex-col h-[calc(100dvh-220px)] min-h-[460px] max-h-[640px] bg-white rounded-3xl overflow-hidden border border-[#eae8e7] shadow-xs">
+            <div className={`flex flex-col flex-1 min-h-[400px] rounded-3xl overflow-hidden border shadow-xs transition-colors ${
+              isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+            }`}>
               <div
                 ref={studentChatContainerRef}
-                className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3.5 bg-[#fbf9f8]"
+                className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3.5 transition-colors ${
+                  isDarkMode ? "bg-[#090d16]" : "bg-[#fbf9f8]"
+                }`}
               >
                 {directMessages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-[#727785] py-12">
+                  <div className={`h-full flex flex-col items-center justify-center text-center py-12 ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>
                     <span className="material-symbols-outlined text-4xl text-[#005bbf] mb-2">chat</span>
-                    <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c]">Start a Direct Conversation</h4>
-                    <p className="text-xs text-[#727785] max-w-sm mt-1">
+                    <h4 className="font-quicksand font-bold text-sm">Start a Direct Conversation</h4>
+                    <p className="text-xs max-w-sm mt-1">
                       Send questions, homework queries, or attach files (Images, PDFs, Docs) directly to your teacher.
                     </p>
                   </div>
@@ -1621,11 +1791,10 @@ export default function StudentDashboard() {
                           </div>
                         )}
 
-                        {/* 🗑️ Delete Button appears ONLY on sender's messages */}
                         {isMe && (
                           <button
                             onClick={() => handleDeleteDirectMessage(msg.id)}
-                            className="opacity-0 group-hover:opacity-100 text-[#727785] hover:text-[#ac3509] p-1 rounded-lg transition-all shrink-0"
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-[#ac3509] p-1 rounded-lg transition-all shrink-0"
                             title="Delete Message"
                           >
                             <span className="material-symbols-outlined text-sm">delete</span>
@@ -1636,6 +1805,8 @@ export default function StudentDashboard() {
                           className={`max-w-[85%] sm:max-w-[70%] p-3 sm:p-3.5 rounded-2xl text-xs shadow-2xs space-y-2 ${
                             isMe
                               ? "bg-[#005bbf] text-white rounded-tr-none"
+                              : isDarkMode
+                              ? "bg-[#1f2937] text-slate-100 border border-slate-800 rounded-tl-none"
                               : "bg-white text-[#1b1c1c] border border-[#eae8e7] rounded-tl-none"
                           }`}
                         >
@@ -1652,7 +1823,13 @@ export default function StudentDashboard() {
                           )}
 
                           {msg.attachmentUrl && (
-                            <div className={`p-2 rounded-xl border ${isMe ? "bg-white/10 border-white/20" : "bg-[#fbf9f8] border-[#eae8e7]"}`}>
+                            <div className={`p-2 rounded-xl border ${
+                              isMe
+                                ? "bg-white/10 border-white/20"
+                                : isDarkMode
+                                ? "bg-slate-800 border-slate-700"
+                                : "bg-[#fbf9f8] border-[#eae8e7]"
+                            }`}>
                               {msg.attachmentType === "image" ? (
                                 <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className="block">
                                   <Image
@@ -1685,7 +1862,9 @@ export default function StudentDashboard() {
                             </div>
                           )}
 
-                          <div className={`text-[9px] text-right font-medium ${isMe ? "text-white/80" : "text-[#727785]"}`}>
+                          <div className={`text-[9px] text-right font-medium ${
+                            isMe ? "text-white/80" : isDarkMode ? "text-slate-400" : "text-[#727785]"
+                          }`}>
                             {formattedTime}
                           </div>
                         </div>
@@ -1696,7 +1875,9 @@ export default function StudentDashboard() {
               </div>
 
               {directFile && (
-                <div className="px-4 py-2 bg-[#f5f3f3] border-t border-[#eae8e7] flex items-center justify-between text-xs shrink-0">
+                <div className={`px-4 py-2 border-t flex items-center justify-between text-xs shrink-0 transition-colors ${
+                  isDarkMode ? "bg-slate-800 border-slate-700" : "bg-[#f5f3f3] border-[#eae8e7]"
+                }`}>
                   <div className="flex items-center gap-2 text-[#005bbf] font-semibold truncate">
                     <span className="material-symbols-outlined text-base">attach_file</span>
                     <span className="truncate max-w-[200px] sm:max-w-xs">{directFile.name}</span>
@@ -1711,8 +1892,12 @@ export default function StudentDashboard() {
                 </div>
               )}
 
-              <div className="p-2.5 sm:p-3 border-t border-[#eae8e7] flex items-center gap-2 bg-white shrink-0">
-                <label className="p-2 rounded-full hover:bg-[#f5f3f3] text-[#005bbf] cursor-pointer transition-colors shrink-0" title="Attach file (Image, PDF, Doc)">
+              <div className={`p-2.5 sm:p-3 border-t flex items-center gap-2 shrink-0 transition-colors ${
+                isDarkMode ? "bg-[#111827] border-slate-800" : "bg-white border-[#eae8e7]"
+              }`}>
+                <label className={`p-2 rounded-full text-[#005bbf] cursor-pointer transition-colors shrink-0 ${
+                  isDarkMode ? "hover:bg-slate-800" : "hover:bg-[#f5f3f3]"
+                }`} title="Attach file (Image, PDF, Doc)">
                   <span className="material-symbols-outlined text-xl block">attach_file</span>
                   <input
                     type="file"
@@ -1725,7 +1910,9 @@ export default function StudentDashboard() {
                 <input
                   type="text"
                   placeholder="Type a message to your teacher..."
-                  className="flex-1 bg-[#f5f3f3] border border-[#eae8e7] rounded-full px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf]"
+                  className={`flex-1 border rounded-full px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm focus:outline-none focus:border-[#005bbf] transition-colors ${
+                    isDarkMode ? "bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500" : "bg-[#f5f3f3] border-[#eae8e7] text-[#1b1c1c]"
+                  }`}
                   value={directInput}
                   onChange={(e) => setDirectInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendDirectMessage()}
@@ -1751,7 +1938,9 @@ export default function StudentDashboard() {
         () => setShowSettingsModal(false),
         "Student Settings",
         <div className="space-y-5">
-          <div className="p-4 bg-[#fbf9f8] rounded-2xl flex items-center gap-3 border border-[#eae8e7]">
+          <div className={`p-4 rounded-2xl flex items-center gap-3 border ${
+            isDarkMode ? "bg-slate-800/60 border-slate-700" : "bg-[#fbf9f8] border-[#eae8e7]"
+          }`}>
             <div className="w-12 h-12 rounded-full bg-[#005bbf] text-white flex items-center justify-center font-quicksand font-bold text-lg overflow-hidden shrink-0">
               {userImage && !imageError ? (
                 <Image
@@ -1768,15 +1957,21 @@ export default function StudentDashboard() {
               )}
             </div>
             <div className="min-w-0">
-              <h4 className="font-quicksand font-bold text-sm text-[#1b1c1c] truncate">{rawName}</h4>
-              <p className="text-xs text-[#727785] truncate">{session?.user?.email}</p>
+              <h4 className="font-quicksand font-bold text-sm truncate">{rawName}</h4>
+              <p className={`text-xs truncate ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>{session?.user?.email}</p>
             </div>
           </div>
 
-          <div className="space-y-3 pt-2 border-t border-[#eae8e7]">
-            <h5 className="font-quicksand font-bold text-xs text-[#1b1c1c]">Preferences</h5>
+          <div className={`space-y-3 pt-2 border-t ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
+            <h5 className="font-quicksand font-bold text-xs">Preferences</h5>
+
+            <div className="flex items-center justify-between py-1">
+              <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>Dark Mode Theme</span>
+              <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
+            </div>
+
             <label className="flex items-center justify-between cursor-pointer py-1">
-              <span className="text-xs text-[#414754] font-medium">Class Notifications</span>
+              <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>Class Notifications</span>
               <input
                 type="checkbox"
                 checked={emailAlerts}
@@ -1784,8 +1979,9 @@ export default function StudentDashboard() {
                 className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
               />
             </label>
+
             <label className="flex items-center justify-between cursor-pointer py-1">
-              <span className="text-xs text-[#414754] font-medium">Sound Effects</span>
+              <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>Sound Effects</span>
               <input
                 type="checkbox"
                 checked={soundEffects}
@@ -1795,7 +1991,7 @@ export default function StudentDashboard() {
             </label>
           </div>
 
-          <div className="pt-3 border-t border-[#eae8e7]">
+          <div className={`pt-3 border-t ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               className="w-full bg-[#ac3509]/10 hover:bg-[#ac3509]/20 text-[#ac3509] py-3 rounded-2xl font-quicksand font-bold text-xs flex items-center justify-center gap-2 transition-colors"
