@@ -3,7 +3,43 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
-// GET: Retrieve all scheduled meetings
+// Helper to check if a class time has ended
+function isClassExpired(dateStr: string, endTimeStr?: string | null, startTimeStr?: string): boolean {
+  try {
+    const timeToUse = endTimeStr || startTimeStr;
+    if (!timeToUse) return false;
+
+    const cleanedTime = timeToUse.trim();
+    let hours = 0;
+    let minutes = 0;
+
+    // Handle 12-hour (AM/PM) or 24-hour time formats
+    if (cleanedTime.toUpperCase().includes("AM") || cleanedTime.toUpperCase().includes("PM")) {
+      const [timePart, modifier] = cleanedTime.split(/\s+/);
+      const [h, m] = timePart.split(":").map(Number);
+      hours = h;
+      minutes = m || 0;
+      if (modifier.toUpperCase() === "PM" && hours < 12) hours += 12;
+      if (modifier.toUpperCase() === "AM" && hours === 12) hours = 0;
+    } else {
+      const [h, m] = cleanedTime.split(":").map(Number);
+      hours = h;
+      minutes = m || 0;
+    }
+
+    const meetingEnd = new Date(dateStr);
+    if (isNaN(meetingEnd.getTime())) return false;
+
+    meetingEnd.setHours(hours, minutes, 0, 0);
+
+    return new Date() > meetingEnd;
+  } catch (err) {
+    console.error("Error checking class expiration:", err);
+    return false;
+  }
+}
+
+// GET: Retrieve all scheduled meetings & auto-delete expired classes
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
@@ -11,7 +47,7 @@ export async function GET() {
   }
 
   try {
-    const meetings = await prisma.meeting.findMany({
+    const allMeetings = await prisma.meeting.findMany({
       include: {
         student: {
           select: { id: true, name: true, email: true, image: true },
@@ -20,7 +56,26 @@ export async function GET() {
       orderBy: [{ date: "asc" }, { time: "asc" }],
     });
 
-    return NextResponse.json({ meetings });
+    const expiredIds: string[] = [];
+    const activeMeetings = [];
+
+    // Separate active meetings from expired ones
+    for (const meeting of allMeetings) {
+      if (isClassExpired(meeting.date, meeting.endTime, meeting.time)) {
+        expiredIds.push(meeting.id);
+      } else {
+        activeMeetings.push(meeting);
+      }
+    }
+
+    // Automatically remove expired classes from database
+    if (expiredIds.length > 0) {
+      await prisma.meeting.deleteMany({
+        where: { id: { in: expiredIds } },
+      });
+    }
+
+    return NextResponse.json({ meetings: activeMeetings });
   } catch (error) {
     console.error("Error fetching meetings:", error);
     return NextResponse.json({ error: "Failed to fetch meetings" }, { status: 500 });

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { uploadAssignmentFile } from "@/lib/upload";
+import ThemeSwitch from "../components/ThemeSwitch";
 
 type Student = {
   id: string;
@@ -16,6 +17,7 @@ type Student = {
   email: string;
   sectionId?: string | null;
   sectionName?: string | null;
+  sectionIds?: string[];
 };
 
 type Submission = {
@@ -113,6 +115,40 @@ type NotificationItem = {
   read: boolean;
 };
 
+function isClassExpired(dateStr: string, endTimeStr?: string | null, startTimeStr?: string): boolean {
+  try {
+    const timeToUse = endTimeStr || startTimeStr;
+    if (!timeToUse) return false;
+
+    const cleanedTime = timeToUse.trim();
+    let hours = 0;
+    let minutes = 0;
+
+    if (cleanedTime.toUpperCase().includes("AM") || cleanedTime.toUpperCase().includes("PM")) {
+      const [timePart, modifier] = cleanedTime.split(/\s+/);
+      const [h, m] = timePart.split(":").map(Number);
+      hours = h;
+      minutes = m || 0;
+      if (modifier.toUpperCase() === "PM" && hours < 12) hours += 12;
+      if (modifier.toUpperCase() === "AM" && hours === 12) hours = 0;
+    } else {
+      const [h, m] = cleanedTime.split(":").map(Number);
+      hours = h;
+      minutes = m || 0;
+    }
+
+    const meetingEnd = new Date(dateStr);
+    if (isNaN(meetingEnd.getTime())) return false;
+
+    meetingEnd.setHours(hours, minutes, 0, 0);
+
+    return new Date() > meetingEnd;
+  } catch (err) {
+    console.error("Error evaluating class expiration:", err);
+    return false;
+  }
+}
+
 export default function TeacherDashboard() {
   const { data: session } = useSession();
   const [mounted, setMounted] = useState(false);
@@ -122,7 +158,6 @@ export default function TeacherDashboard() {
     "overview" | "approvals" | "students" | "assignments" | "sections" | "schedule" | "direct_messages"
   >("overview");
 
-  // 🌙 Dark/Light Theme State
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
@@ -161,7 +196,6 @@ export default function TeacherDashboard() {
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 📁 Selected Assignment Submissions Modal & Remarks State
   const [selectedAssignmentSubmissions, setSelectedAssignmentSubmissions] = useState<Assignment | null>(null);
   const [remarksDraft, setRemarksDraft] = useState<Record<string, string>>({});
   const [savingRemarkStudentId, setSavingRemarkStudentId] = useState<string | null>(null);
@@ -188,7 +222,6 @@ export default function TeacherDashboard() {
   const [newMessageText, setNewMessageText] = useState("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // 💬 Direct Chat State
   const [allDirectMessages, setAllDirectMessages] = useState<DirectMessage[]>([]);
   const [selectedChatStudent, setSelectedChatStudent] = useState<Student | null>(null);
   const [teacherDirectInput, setTeacherDirectInput] = useState("");
@@ -200,7 +233,6 @@ export default function TeacherDashboard() {
   const prevDirectMsgLengthRef = useRef<number>(0);
   const prevActiveChatStudentIdRef = useRef<string | null>(null);
 
-  // Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -467,7 +499,10 @@ export default function TeacherDashboard() {
         if (res.ok) {
           const data = await res.json();
           if (data.meetings) {
-            setMeetings(data.meetings);
+            const activeMeetings = data.meetings.filter(
+              (m: Meeting) => !isClassExpired(m.date, m.endTime, m.time)
+            );
+            setMeetings(activeMeetings);
           }
         }
       } catch (err) {
@@ -564,6 +599,12 @@ export default function TeacherDashboard() {
                     ? Math.round((completedCount / targetAssignments.length) * 100)
                     : 0;
 
+                const parsedSectionIds: string[] = s.sectionIds
+                  ? s.sectionIds
+                  : s.sectionId
+                  ? [s.sectionId]
+                  : [];
+
                 return {
                   id: s.id,
                   name: s.name,
@@ -577,6 +618,7 @@ export default function TeacherDashboard() {
                   progress: dynamicProgress,
                   sectionId: s.sectionId || s.section?.id || null,
                   sectionName: s.section?.name || null,
+                  sectionIds: parsedSectionIds,
                 };
               });
 
@@ -594,38 +636,65 @@ export default function TeacherDashboard() {
     return () => clearInterval(interval);
   }, [assignments]);
 
-  const handleAssignStudentToSection = async (studentEmail: string, sectionId: string | null) => {
+  // Support multiple sections assignment/removal
+  const handleAssignStudentToSection = async (
+    studentEmail: string,
+    sectionId: string | null,
+    action: "add" | "remove" = "add"
+  ) => {
     try {
       const res = await fetch("/api/sections/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentEmail, sectionId }),
+        body: JSON.stringify({ studentEmail, sectionId, action }),
       });
 
       if (res.ok) {
-        const assignedSection = sections.find((s) => s.id === sectionId);
         setStudents((prev) =>
-          prev.map((s) =>
-            s.email.toLowerCase() === studentEmail.toLowerCase()
-              ? {
-                  ...s,
-                  sectionId: sectionId,
-                  sectionName: assignedSection ? assignedSection.name : null,
-                }
-              : s
-          )
+          prev.map((s) => {
+            if (s.email.toLowerCase() !== studentEmail.toLowerCase()) return s;
+
+            let updatedSectionIds = s.sectionIds ? [...s.sectionIds] : s.sectionId ? [s.sectionId] : [];
+
+            if (action === "add" && sectionId) {
+              if (!updatedSectionIds.includes(sectionId)) {
+                updatedSectionIds.push(sectionId);
+              }
+            } else if (action === "remove" && sectionId) {
+              updatedSectionIds = updatedSectionIds.filter((id) => id !== sectionId);
+            }
+
+            const primarySectionId = updatedSectionIds[0] || null;
+            const primarySection = sections.find((sec) => sec.id === primarySectionId);
+
+            return {
+              ...s,
+              sectionId: primarySectionId,
+              sectionName: primarySection ? primarySection.name : null,
+              sectionIds: updatedSectionIds,
+            };
+          })
         );
 
         if (selectedStudent?.email.toLowerCase() === studentEmail.toLowerCase()) {
-          setSelectedStudent((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  sectionId: sectionId,
-                  sectionName: assignedSection ? assignedSection.name : null,
-                }
-              : null
-          );
+          setSelectedStudent((prev) => {
+            if (!prev) return null;
+            let updatedSectionIds = prev.sectionIds ? [...prev.sectionIds] : prev.sectionId ? [prev.sectionId] : [];
+            if (action === "add" && sectionId) {
+              if (!updatedSectionIds.includes(sectionId)) updatedSectionIds.push(sectionId);
+            } else if (action === "remove" && sectionId) {
+              updatedSectionIds = updatedSectionIds.filter((id) => id !== sectionId);
+            }
+            const primarySectionId = updatedSectionIds[0] || null;
+            const primarySection = sections.find((sec) => sec.id === primarySectionId);
+
+            return {
+              ...prev,
+              sectionId: primarySectionId,
+              sectionName: primarySection ? primarySection.name : null,
+              sectionIds: updatedSectionIds,
+            };
+          });
         }
 
         setTargetSectionForAssign(null);
@@ -796,7 +865,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // 📝 Save Remarks / Feedback for Individual Student Assignment Submission
   const handleSaveStudentRemarks = async (
     assignmentId: string,
     studentId: string,
@@ -818,7 +886,6 @@ export default function TeacherDashboard() {
       });
 
       if (res.ok || res.status === 200) {
-        // Update local assignments list state
         setAssignments((prev) =>
           prev.map((a) => {
             if (a.id !== assignmentId) return a;
@@ -854,7 +921,6 @@ export default function TeacherDashboard() {
           })
         );
 
-        // Update modal inspector state directly
         setSelectedAssignmentSubmissions((prev) => {
           if (!prev || prev.id !== assignmentId) return prev;
 
@@ -1209,6 +1275,24 @@ export default function TeacherDashboard() {
     <div className={`font-inter min-h-screen flex flex-col md:flex-row antialiased transition-colors duration-200 ${
       isDarkMode ? "bg-[#090d16] text-slate-100" : "bg-[#fbf9f8] text-[#1b1c1c]"
     }`}>
+      {/* 🎨 Theme-matched custom scrollbar injection */}
+      <style>{`
+        ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${isDarkMode ? "#374151" : "#d1d5db"};
+          border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${isDarkMode ? "#4b5563" : "#9ca3af"};
+        }
+      `}</style>
+
       {/* 🧭 Sidebar */}
       <aside className={`hidden md:flex flex-col justify-between p-5 border-r h-screen w-72 fixed left-0 top-0 z-40 transition-colors ${
         isDarkMode ? "bg-[#111827] border-slate-800 shadow-[1px_0_10px_rgba(0,0,0,0.2)]" : "bg-white border-[#eae8e7] shadow-[1px_0_10px_rgba(0,0,0,0.02)]"
@@ -1340,17 +1424,7 @@ export default function TeacherDashboard() {
         </div>
 
         <div className="flex items-center gap-1 text-[#005bbf]">
-          <button
-            onClick={toggleTheme}
-            className={`p-2 rounded-full transition-colors ${
-              isDarkMode ? "hover:bg-slate-800 text-amber-400" : "hover:bg-[#f5f3f3] text-[#005bbf]"
-            }`}
-            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          >
-            <span className="material-symbols-outlined text-xl block">
-              {isDarkMode ? "light_mode" : "dark_mode"}
-            </span>
-          </button>
+          <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
 
           <button
             onClick={() => {
@@ -1486,17 +1560,7 @@ export default function TeacherDashboard() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <button
-              onClick={toggleTheme}
-              className={`p-2.5 rounded-2xl transition-colors ${
-                isDarkMode ? "bg-slate-800 text-amber-400 hover:bg-slate-700" : "bg-[#f5f3f3] text-[#005bbf] hover:bg-[#eae8e7]"
-              }`}
-              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            >
-              <span className="material-symbols-outlined text-xl block">
-                {isDarkMode ? "light_mode" : "dark_mode"}
-              </span>
-            </button>
+            <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
 
             <div className="relative">
               <button
@@ -1651,7 +1715,7 @@ export default function TeacherDashboard() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold font-quicksand">{todayMeetings.length}</p>
-                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Today&apos;s Classes</p>
+                    <p className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Today's Classes</p>
                   </div>
                 </div>
 
@@ -1701,7 +1765,7 @@ export default function TeacherDashboard() {
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="font-quicksand font-bold text-base flex items-center gap-2">
                       <span className="material-symbols-outlined text-[#005bbf]">event</span>
-                      Today&apos;s Class Schedule ({todayMeetings.length})
+                      Today's Class Schedule ({todayMeetings.length})
                     </h3>
                     <button onClick={() => setActiveView("schedule")} className="text-xs text-[#005bbf] font-bold hover:underline">
                       View Full Calendar
@@ -2400,7 +2464,6 @@ export default function TeacherDashboard() {
                     </div>
 
                     <div className={`space-y-2 pt-3 border-t ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
-                      {/* 👁️ View Submissions & Give Remarks Button */}
                       <button
                         onClick={() => setSelectedAssignmentSubmissions(assignment)}
                         className="w-full bg-[#005bbf]/10 hover:bg-[#005bbf]/20 text-[#005bbf] py-2 rounded-xl text-xs font-quicksand font-bold flex items-center justify-center gap-1.5 transition-colors"
@@ -2438,13 +2501,13 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* 🏫 VIEW 6: SECTIONS */}
+        {/* 🏫 VIEW 6: SECTIONS (UPDATED MULTI-SECTION ROSTER) */}
         {activeView === "sections" && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="font-quicksand font-bold text-xl">Academic Sections ({sections.length})</h2>
-                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Create class cohorts and conduct group discussions.</p>
+                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Create class cohorts, assign students to multiple sections, and conduct discussions.</p>
               </div>
               <button
                 onClick={() => setShowAddSection(true)}
@@ -2457,8 +2520,12 @@ export default function TeacherDashboard() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {sections.map((section) => {
+                // Multi-section filter logic
                 const assignedStudents = students.filter(
-                  (s) => s.sectionId === section.id || s.sectionName === section.name
+                  (s) =>
+                    s.sectionId === section.id ||
+                    s.sectionName === section.name ||
+                    (s.sectionIds && s.sectionIds.includes(section.id))
                 );
 
                 return (
@@ -2502,8 +2569,8 @@ export default function TeacherDashboard() {
                               >
                                 <span className="font-semibold truncate">{st.name}</span>
                                 <button
-                                  onClick={() => handleAssignStudentToSection(st.email, null)}
-                                  className="text-[10px] text-[#ac3509] font-bold hover:underline"
+                                  onClick={() => handleAssignStudentToSection(st.email, section.id, "remove")}
+                                  className="text-[10px] text-[#ac3509] font-bold hover:underline cursor-pointer"
                                 >
                                   Remove
                                 </button>
@@ -2547,7 +2614,7 @@ export default function TeacherDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="font-quicksand font-bold text-xl">Live Meeting Schedule</h2>
-                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Host Google Meet classrooms and monitor upcoming sessions.</p>
+                <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Host Google Meet classrooms and monitor upcoming sessions. Expired classes are automatically cleaned up.</p>
               </div>
               <button
                 onClick={() => {
@@ -2799,7 +2866,6 @@ export default function TeacherDashboard() {
                             </div>
                           </div>
 
-                          {/* 💬 Teacher Remarks Section */}
                           <div className={`pt-3 border-t space-y-1.5 ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
                             <label className={`block text-[11px] font-semibold flex items-center gap-1 ${
                               isDarkMode ? "text-slate-300" : "text-[#414754]"
@@ -3195,11 +3261,19 @@ export default function TeacherDashboard() {
               <option value="">Select student...</option>
               {students
                 .filter((s) => s.status === "approved" || s.status === "active")
-                .map((s) => (
-                  <option key={s.id} value={s.email}>
-                    {s.name} ({s.email}) {s.sectionName ? `[Section: ${s.sectionName}]` : "[No Section]"}
-                  </option>
-                ))}
+                .map((s) => {
+                  const studentSectionNames = sections
+                    .filter((sec) => s.sectionIds?.includes(sec.id) || s.sectionId === sec.id)
+                    .map((sec) => sec.name);
+
+                  const displaySections = studentSectionNames.length > 0 ? studentSectionNames.join(", ") : "No Sections";
+
+                  return (
+                    <option key={s.id} value={s.email}>
+                      {s.name} ({s.email}) [{displaySections}]
+                    </option>
+                  );
+                })}
             </select>
           </div>
 
@@ -3209,7 +3283,7 @@ export default function TeacherDashboard() {
                 alert("Please select a student.");
                 return;
               }
-              handleAssignStudentToSection(selectedStudentToAssign, targetSectionForAssign.id);
+              handleAssignStudentToSection(selectedStudentToAssign, targetSectionForAssign.id, "add");
             }}
             className="w-full bg-[#005bbf] hover:bg-[#004493] text-white py-3 rounded-2xl font-quicksand font-bold text-xs sm:text-sm active:scale-95"
           >
@@ -3313,8 +3387,13 @@ export default function TeacherDashboard() {
 
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className={`rounded-2xl p-3 border ${isDarkMode ? "bg-slate-800/60 border-slate-700" : "bg-[#fbf9f8] border-[#eae8e7]"}`}>
-                <p className={`text-[10px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Cohort</p>
-                <p className="font-semibold truncate">{selectedStudent.sectionName || "No Cohort"}</p>
+                <p className={`text-[10px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Cohorts</p>
+                <p className="font-semibold truncate">
+                  {sections
+                    .filter((sec) => selectedStudent.sectionIds?.includes(sec.id) || selectedStudent.sectionId === sec.id)
+                    .map((sec) => sec.name)
+                    .join(", ") || "No Cohorts"}
+                </p>
               </div>
               <div className={`rounded-2xl p-3 border ${isDarkMode ? "bg-slate-800/60 border-slate-700" : "bg-[#fbf9f8] border-[#eae8e7]"}`}>
                 <p className={`text-[10px] ${isDarkMode ? "text-slate-400" : "text-[#727785]"}`}>Mastery</p>
@@ -3404,15 +3483,12 @@ export default function TeacherDashboard() {
           <div className={`space-y-3 pt-2 border-t ${isDarkMode ? "border-slate-800" : "border-[#eae8e7]"}`}>
             <h5 className="font-quicksand font-bold text-xs">Preferences</h5>
             
-            <label className="flex items-center justify-between cursor-pointer py-1">
-              <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>Dark Mode Theme</span>
-              <input
-                type="checkbox"
-                checked={isDarkMode}
-                onChange={toggleTheme}
-                className="w-4 h-4 accent-[#005bbf] rounded cursor-pointer"
-              />
-            </label>
+            <div className="flex items-center justify-between py-1">
+              <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>
+                Dark Mode Theme
+              </span>
+              <ThemeSwitch checked={isDarkMode} onChange={toggleTheme} />
+            </div>
 
             <label className="flex items-center justify-between cursor-pointer py-1">
               <span className={`text-xs font-medium ${isDarkMode ? "text-slate-300" : "text-[#414754]"}`}>Email Alerts</span>
